@@ -1,82 +1,113 @@
-from typing import Any, Dict, List, Annotated
+from typing import Annotated, List
+
 import operator
 from typing_extensions import TypedDict
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
+
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.graph import StateGraph, END, START
+from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
-import json
 
 from config.settings import config
 from src.agent.tools import retrieve_papers
 
-# Define the State graph
-class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage], operator.add]
-    intermediate_steps: Annotated[List[tuple[Any, str]], operator.add]
-    current_plan: str
-    documents: List[str]
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
 
-# Setup tools and LLM
+
+class AgentState(TypedDict):
+    """Minimal state carried through the LangGraph execution."""
+
+    messages: Annotated[List[BaseMessage], operator.add]
+
+
+# ---------------------------------------------------------------------------
+# LLM & tools
+# ---------------------------------------------------------------------------
+
 tools = [retrieve_papers]
 tool_node = ToolNode(tools)
 
 llm = ChatOpenAI(
     openai_api_base=config.OPENAI_API_BASE,
     openai_api_key=config.OPENAI_API_KEY,
-    model_name=config.LLM_MODEL, # local or openai compatible name
-    temperature=0.1
+    model_name=config.LLM_MODEL,
+    temperature=0.1,
 )
 
 model_with_tools = llm.bind_tools(tools)
 
-def should_continue(state: AgentState):
-    """Determine whether we need to retrieve more info or end."""
-    last_message = state["messages"][-1]
-    # If the response has a tool call, route to tools
-    if last_message.tool_calls:
-        return "tools"
-    # Otherwise, it's done
-    return "end"
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
 
-def call_model(state: AgentState):
-    """Execution of the LLM given the current state"""
-    messages = state["messages"]
-    system_prompt = """You are an expert Research AI Assistant connecting researchers to parsed papers using a Vector DB.
-    First, use tools like paper_retriever to find information about the queries.
-    Then, synthesize the answers clearly and accurately citing the sources extracted from the papers.
-    """
-    
-    # We prefix a system message implicitly
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("placeholder", "{messages}"),
-    ])
-    
-    chain = prompt | model_with_tools
-    response = chain.invoke({"messages": messages})
+_SYSTEM_PROMPT = """\
+You are an expert Research AI Assistant.  Your knowledge base consists of \
+academic papers stored in a vector database, which you access through the \
+paper_retriever tool.
+
+## Retrieval rules
+- Always call paper_retriever at least once before answering any question about \
+paper content, methodology, results, figures, tables, equations, or authors.
+- For multi-part questions, call paper_retriever multiple times with focused \
+sub-queries — one call per distinct aspect — rather than a single broad query.
+- If an initial retrieval returns low-confidence chunks (Score < 0.35), try a \
+rephrased or narrower query before concluding the information is absent.
+
+## Answer rules
+- Base your answer strictly on the retrieved chunks.  Do not invent facts, \
+equations, or citations that are not present in the retrieved text.
+- If the retrieved chunks do not contain enough information to answer the \
+question, state this clearly rather than guessing.
+- For every factual claim, cite the source using the format: \
+(Author(s), Page N) or (PDF: <pdf_name>, Page N) when page information is \
+available in the chunk metadata.
+- Prefer precise, concise language.  Use bullet points or numbered lists when \
+presenting multiple findings or steps.
+
+## Scope
+- If the user asks a question that is entirely unrelated to research papers \
+(e.g. general coding help, casual conversation), politely note that you are \
+specialised for academic paper Q&A and attempt to help with what is in the \
+database if applicable.
+"""
+
+
+def call_model(state: AgentState) -> dict:
+    """Invoke the LLM with the current message history, prepending the system prompt."""
+    messages = [SystemMessage(content=_SYSTEM_PROMPT)] + state["messages"]
+    response = model_with_tools.invoke(messages)
     return {"messages": [response]}
 
 
-# Build the Graph
+def should_continue(state: AgentState) -> str:
+    """Route to 'tools' if the last AI message has tool calls, else end."""
+    last = state["messages"][-1]
+    if isinstance(last, AIMessage) and last.tool_calls:
+        return "tools"
+    return "end"
+
+
+# ---------------------------------------------------------------------------
+# Graph construction
+# ---------------------------------------------------------------------------
+
 workflow = StateGraph(AgentState)
 
-# Add nodes
 workflow.add_node("agent", call_model)
 workflow.add_node("tools", tool_node)
 
-# Add edges connecting nodes
 workflow.add_edge(START, "agent")
 workflow.add_conditional_edges(
     "agent",
     should_continue,
-    {
-        "tools": "tools",
-        "end": END
-    }
+    {"tools": "tools", "end": END},
 )
 workflow.add_edge("tools", "agent")
 
-# Compile app
-app = workflow.compile()
+# Compile with a recursion limit to prevent runaway tool loops.
+# config.AGENT_MAX_ITERATIONS controls how many node-visits are allowed; each
+# round-trip (agent → tools → agent) counts as 2 iterations, so the effective
+# maximum number of tool calls is roughly AGENT_MAX_ITERATIONS // 2.
+app = workflow.compile(recursion_limit=config.AGENT_MAX_ITERATIONS)
