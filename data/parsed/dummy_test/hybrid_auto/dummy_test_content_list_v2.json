@@ -1,0 +1,38 @@
+[
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Agentic RAG using MinerU "
+                    }
+                ]
+            },
+            "bbox": [
+                161,
+                93,
+                408,
+                112
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This is a simple test document. "
+                    }
+                ]
+            },
+            "bbox": [
+                163,
+                117,
+                445,
+                136
+            ]
+        }
+    ]
+]

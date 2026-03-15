@@ -1,0 +1,24 @@
+[
+    {
+        "type": "text",
+        "text": "Agentic RAG using MinerU ",
+        "bbox": [
+            161,
+            93,
+            408,
+            112
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "This is a simple test document. ",
+        "bbox": [
+            163,
+            117,
+            445,
+            136
+        ],
+        "page_idx": 0
+    }
+]
