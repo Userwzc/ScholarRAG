@@ -29,8 +29,15 @@ def retrieve_papers(query: str, filter_metadata: str = "{}") -> str:
         
     formatted_results = []
     for doc in results:
-        metadata = doc.metadata
-        chunk = doc.page_content
+        payload = doc.get("payload", {})
+        metadata = {k: v for k, v in payload.items() if k != "page_content" and k != "_multimodal_input"}
+        chunk = payload.get("page_content", "")
+        # fallback for multimodal if page_content isn't there
+        if not chunk and "_multimodal_input" in payload:
+            chunk = payload["_multimodal_input"].get("text", "")
+            if not chunk and "image" in payload["_multimodal_input"]:
+                chunk = f"[Image: {payload['_multimodal_input']['image']}]"
+                
         formatted = f"[Paper: {metadata.get('title', 'Unknown Title')}]\n{chunk}"
         formatted_results.append(formatted)
         

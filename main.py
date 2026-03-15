@@ -3,59 +3,87 @@ from src.ingest.mineru_parser import MinerUParser
 from src.rag.vector_store import PaperVectorStore
 from src.agent.graph import app as agent_app
 from langchain_core.messages import HumanMessage
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 def add_paper(pdf_path: str):
-    print(f"Adding paper from {pdf_path}...")
+    logger.info(f"Adding paper from {pdf_path}...")
     
     # 1. Parse
     parser = MinerUParser(output_dir="./data/parsed")
     parsed_data = parser.parse_pdf(pdf_path)
     
     # 2. Chunk (Granular based on element types)
-    chunks_data = parser.chunk_content(parsed_data)
+    chunks_data, doc_metadata = parser.chunk_content(parsed_data)
     
+    # Save the cleaned chunks back as a reconstructed markdown for easier reading (optional)
+    clean_md_path = f"{parser.output_dir}/{parsed_data.get('pdf_name')}/{parsed_data.get('pdf_name')}_clean.md"
+    try:
+        import os
+        with open(clean_md_path, "w", encoding="utf-8") as f:
+            for chunk in chunks_data:
+                f.write(chunk["content"] + "\n\n")
+    except Exception as e:
+        logger.error(f"Could not save markdown: {e}")
+
     # 3. Store
     store = PaperVectorStore()
     
     # Extract structural chunks and enrich with file metadata
-    texts = []
+    multimodal_inputs = []
     metadata_list = []
     
     for chunk in chunks_data:
-        # Text to embed
-        texts.append(chunk["content"])
-        
         # Merge file metadata with chunk-level layout metadata
         meta = {
-            "title": parsed_data.get("title", "Unknown Title"),
+            "title": doc_metadata.get("title_extracted") or parsed_data.get("title", "Unknown Title"),
             "pdf_name": parsed_data.get("pdf_name", ""),
-            "chunk_type": chunk.get("type", "text")
+            "chunk_type": chunk.get("type", "text"),
+            "authors": " | ".join(doc_metadata.get("pre_abstract_meta", [])[:5]), # Quick heuristic
+            "footnotes_count": len(doc_metadata.get("footnotes_and_discarded", []))
         }
         meta.update(chunk.get("metadata", {}))
+        
+        # Build multimodal input dict for Qwen3-VL
+        input_item = {"text": chunk["content"]}
+        
+        images_to_embed = []
+        
+        # If the chunk has a primary image path (e.g. from an image or table block)
+        if meta.get("img_path"):
+            import os
+            # Build absolute path taking MinerU output_dir structure into account
+            # MinerU puts it under output_dir/pdf_name/img_path
+            img_abs_path = os.path.join(parser.output_dir, meta["pdf_name"], meta["img_path"])
+            if os.path.exists(img_abs_path):
+                images_to_embed.append(img_abs_path)
+                
+        # Update equation image paths to absolute paths in metadata for later UI/user reference,
+        # but DO NOT add them to images_to_embed so they aren't processed by the Vision Model.
+        if meta.get("equation_imgs"):
+            import os
+            abs_eq_imgs = []
+            for eq_img in meta["equation_imgs"]:
+                eq_abs_path = os.path.join(parser.output_dir, meta["pdf_name"], eq_img)
+                if os.path.exists(eq_abs_path):
+                    abs_eq_imgs.append(eq_abs_path)
+            # Replace relative paths in metadata with absolute ones for easy local access
+            meta["equation_imgs"] = abs_eq_imgs
+                    
+        if images_to_embed:
+            # Qwen3VLEmbedder supports a single string or a list of strings
+            input_item["image"] = images_to_embed if len(images_to_embed) > 1 else images_to_embed[0]
+                
+        multimodal_inputs.append(input_item)
         metadata_list.append(meta)
         
-    # We alter store.store_paper_chunks API loosely here to accept text arrays
-    # or just convert to Langchain Documents here:
-    from langchain_core.documents import Document
-    from langchain_qdrant import QdrantVectorStore
-    
-    docs = [Document(page_content=t, metadata=m) for t, m in zip(texts, metadata_list)]
-    
-    from config.settings import config
-    
-    # Instantiate without from_documents constructor pattern via direct object use
-    qdrant = QdrantVectorStore(
-        client=store.client,
-        collection_name=store.collection_name,
-        embedding=store.embeddings,
-    )
-    
-    qdrant.add_documents(documents=docs)
-    print(f"Stored {len(docs)} highly granuler structural chunks in Qdrant.")
-    print("Paper added successfully!")
+    # Use store_multimodal_inputs to embed text and images simultaneously
+    store.store_multimodal_inputs(multimodal_inputs, metadata_list)
+    logger.info("Paper added successfully!")
 
 def query_agent(question: str):
-    print(f"\nQuestion: {question}\n")
+    logger.info(f"Question: {question}")
     
     inputs = {
         "messages": [HumanMessage(content=question)],
@@ -68,7 +96,7 @@ def query_agent(question: str):
     for event in agent_app.stream(inputs, stream_mode="values"):
         message = event.get("messages")
         if message:
-            print(f"Agent Action/Response: {message[-1].content}")
+            logger.info(f"Agent Action/Response: {message[-1].content}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Agentic RAG System for Research Papers")
