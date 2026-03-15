@@ -17,7 +17,7 @@ load_dotenv(override=True)
 from langchain_core.messages import AIMessageChunk, HumanMessage  # noqa: E402
 
 from src.ingest.mineru_parser import MinerUParser  # noqa: E402
-from src.rag.vector_store import PaperVectorStore  # noqa: E402
+from src.rag.vector_store import vector_store  # noqa: E402
 from src.agent.graph import app as agent_app  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
 
@@ -55,7 +55,7 @@ def add_paper(pdf_path: str) -> None:
         logger.error("Could not save markdown reconstruction: %s", exc)
 
     # 3. Embed and store in Qdrant
-    store = PaperVectorStore()
+    # Use module-level singleton to avoid reloading embedding model
 
     # Derive the best available title from chunk-level metadata first,
     # then fall back to what the parser recorded in parsed_data.
@@ -129,7 +129,7 @@ def add_paper(pdf_path: str) -> None:
         multimodal_inputs.append(input_item)
         metadata_list.append(meta)
 
-    store.store_multimodal_inputs(multimodal_inputs, metadata_list)
+    vector_store.store_multimodal_inputs(multimodal_inputs, metadata_list)
     logger.info("Paper added successfully — %d chunks stored.", len(multimodal_inputs))
 
 

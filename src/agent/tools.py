@@ -5,13 +5,10 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from config.settings import config
-from src.rag.vector_store import PaperVectorStore
+from src.rag.vector_store import vector_store
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-# Module-level vector store — initialised once at import time.
-vector_store = PaperVectorStore()
 
 
 class PaperSearchInput(BaseModel):

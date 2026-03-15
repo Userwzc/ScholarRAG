@@ -26,28 +26,12 @@ def _content_uuid(*parts: str) -> str:
 
 
 class PaperVectorStore:
-    _instance: Optional["PaperVectorStore"] = None
-
-    def __new__(
-        cls,
-        host: str = "localhost",
-        port: int = 6333,
-        collection_name: str = "papers_rag",
-    ) -> "PaperVectorStore":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
     def __init__(
         self,
         host: str = "localhost",
         port: int = 6333,
         collection_name: str = "papers_rag",
     ):
-        if self._initialized:
-            return
-
         self.client = QdrantClient(
             url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}"
         )
@@ -58,8 +42,6 @@ class PaperVectorStore:
         self._reranker = None
         if config.RERANKER_MODEL:
             self._load_reranker(config.RERANKER_MODEL)
-
-        self._initialized = True
 
     def _load_reranker(self, model_path: str) -> None:
         """Lazily load the Qwen3VLReranker. Logs a warning on failure."""
@@ -308,3 +290,7 @@ class PaperVectorStore:
         except Exception as exc:
             logger.error("Failed to delete points for %s: %s", pdf_name, exc)
             return False
+
+
+# Module-level singleton instance
+vector_store = PaperVectorStore()

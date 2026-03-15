@@ -2,7 +2,7 @@ import os
 import shutil
 from typing import Optional
 
-from src.rag.vector_store import PaperVectorStore
+from src.rag.vector_store import vector_store
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,8 +26,7 @@ class PaperManager:
         Returns:
             True if deletion was successful, False otherwise.
         """
-        store = PaperVectorStore()
-        success = store.delete_paper(pdf_name)
+        success = vector_store.delete_paper(pdf_name)
 
         if not success:
             logger.error("Failed to delete paper '%s' from vector store.", pdf_name)
