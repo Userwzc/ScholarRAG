@@ -4,3 +4,4 @@ qdrant_storage/
 data/
 .env
 models/
+.DS_Store
