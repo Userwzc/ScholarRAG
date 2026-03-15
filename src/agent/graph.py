@@ -106,8 +106,5 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("tools", "agent")
 
-# Compile with a recursion limit to prevent runaway tool loops.
-# config.AGENT_MAX_ITERATIONS controls how many node-visits are allowed; each
-# round-trip (agent → tools → agent) counts as 2 iterations, so the effective
-# maximum number of tool calls is roughly AGENT_MAX_ITERATIONS // 2.
-app = workflow.compile(recursion_limit=config.AGENT_MAX_ITERATIONS)
+app = workflow.compile()
+app = app.with_config(recursion_limit=config.AGENT_MAX_ITERATIONS)

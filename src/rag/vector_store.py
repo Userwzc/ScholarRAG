@@ -26,12 +26,28 @@ def _content_uuid(*parts: str) -> str:
 
 
 class PaperVectorStore:
+    _instance: Optional["PaperVectorStore"] = None
+
+    def __new__(
+        cls,
+        host: str = "localhost",
+        port: int = 6333,
+        collection_name: str = "papers_rag",
+    ) -> "PaperVectorStore":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(
         self,
         host: str = "localhost",
         port: int = 6333,
         collection_name: str = "papers_rag",
     ):
+        if self._initialized:
+            return
+
         self.client = QdrantClient(
             url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}"
         )
@@ -39,10 +55,11 @@ class PaperVectorStore:
         self.embeddings = Qwen3VLEmbeddings(model_name_or_path=config.EMBEDDING_MODEL)
         self._ensure_collection()
 
-        # Reranker is loaded lazily: only when RERANKER_MODEL is configured.
         self._reranker = None
         if config.RERANKER_MODEL:
             self._load_reranker(config.RERANKER_MODEL)
+
+        self._initialized = True
 
     def _load_reranker(self, model_path: str) -> None:
         """Lazily load the Qwen3VLReranker. Logs a warning on failure."""
@@ -274,3 +291,20 @@ class PaperVectorStore:
         ).points
 
         return [{"score": res.score, "payload": res.payload} for res in results]
+
+    def delete_paper(self, pdf_name: str) -> bool:
+        """Delete all chunks associated with a specific paper by pdf_name.
+
+        Returns True if deletion was successful, False otherwise.
+        """
+        filter_params = self._build_filter({"pdf_name": pdf_name})
+        try:
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(filter=filter_params),
+            )
+            logger.info("Deleted points for pdf_name=%s", pdf_name)
+            return True
+        except Exception as exc:
+            logger.error("Failed to delete points for %s: %s", pdf_name, exc)
+            return False

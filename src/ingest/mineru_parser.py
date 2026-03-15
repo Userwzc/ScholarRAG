@@ -81,10 +81,19 @@ class MinerUParser:
     from Research PDF papers.
     """
 
-    def __init__(self, output_dir: str = "./output", backend: str = "pipeline"):
+    def __init__(
+        self, output_dir: str = "./output", backend: str = "hybrid-auto-engine"
+    ):
         self.output_dir = output_dir
         self.backend = backend
         os.makedirs(self.output_dir, exist_ok=True)
+
+    @property
+    def backend_subdir(self) -> str:
+        """返回 backend 对应的输出子目录名称。"""
+        if self.backend in ("vlm", "hybrid-auto-engine"):
+            return "hybrid_auto"
+        return "auto"
 
     def _scan_output_files(
         self, local_output_dir: str
@@ -331,29 +340,51 @@ class MinerUParser:
         def get_list_items(block: Dict[str, Any]) -> List[str]:
             """
             从 list block 中提取每个列表条目的完整文本。
+            支持两种结构：
+            - Pipeline: block 直接包含 lines
+            - VLM: block 包含二级 blocks（每个 block 含 lines）
             MinerU 的 list block 使用 is_list_start_line 标记条目起始行，
             同一条目的多行（缩进续行）需要合并。
             """
             items: List[str] = []
             current_item_lines: List[str] = []
 
-            lines = block.get("lines", [])
-            for line in lines:
-                line_text = _spans_to_text(line.get("spans", [])).strip()
-                if not line_text:
-                    continue
-                is_start = line.get("is_list_start_line", False)
-                if is_start and current_item_lines:
-                    # 保存前一个条目；仅去除行尾连字符造成的分词断行
+            # VLM backend: 二级 blocks 结构
+            if "blocks" in block:
+                for sub_block in block.get("blocks", []):
+                    sub_lines = sub_block.get("lines", [])
+                    for line in sub_lines:
+                        line_text = _spans_to_text(line.get("spans", [])).strip()
+                        if not line_text:
+                            continue
+                        is_start = line.get("is_list_start_line", False)
+                        if is_start and current_item_lines:
+                            merged = _merge_hyphen_lines(current_item_lines)
+                            items.append(merged.strip())
+                            current_item_lines = []
+                        current_item_lines.append(line_text)
+                # 最后一个条目
+                if current_item_lines:
                     merged = _merge_hyphen_lines(current_item_lines)
                     items.append(merged.strip())
-                    current_item_lines = []
-                current_item_lines.append(line_text)
+            else:
+                # Pipeline backend: 直接 lines 结构
+                lines = block.get("lines", [])
+                for line in lines:
+                    line_text = _spans_to_text(line.get("spans", [])).strip()
+                    if not line_text:
+                        continue
+                    is_start = line.get("is_list_start_line", False)
+                    if is_start and current_item_lines:
+                        merged = _merge_hyphen_lines(current_item_lines)
+                        items.append(merged.strip())
+                        current_item_lines = []
+                    current_item_lines.append(line_text)
 
-            # 最后一个条目
-            if current_item_lines:
-                merged = _merge_hyphen_lines(current_item_lines)
-                items.append(merged.strip())
+                # 最后一个条目
+                if current_item_lines:
+                    merged = _merge_hyphen_lines(current_item_lines)
+                    items.append(merged.strip())
 
             return [it for it in items if it]
 

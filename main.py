@@ -1,13 +1,18 @@
-from dotenv import load_dotenv
+import argparse
+import os
+import sys
+import warnings
+
+os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+
+warnings.filterwarnings("ignore", message="Class .* is implemented in both")
+
+from dotenv import load_dotenv  # noqa: E402
 
 # Must be the very first call so .env values override any pre-set system
 # environment variables (e.g. MINERU_MODEL_SOURCE) before any module-level
 # config singletons are constructed.
 load_dotenv(override=True)
-
-import os  # noqa: E402
-import sys  # noqa: E402
-import argparse  # noqa: E402
 
 from langchain_core.messages import AIMessageChunk, HumanMessage  # noqa: E402
 
@@ -38,8 +43,9 @@ def add_paper(pdf_path: str) -> None:
 
     # Optionally persist a human-readable reconstruction for debugging
     pdf_name = parsed_data.get("pdf_name", "")
+    backend_subdir = parser.backend_subdir
     clean_md_path = os.path.join(
-        parser.output_dir, pdf_name, "auto", f"{pdf_name}_clean.md"
+        parser.output_dir, pdf_name, backend_subdir, f"{pdf_name}_clean.md"
     )
     try:
         with open(clean_md_path, "w", encoding="utf-8") as f:
@@ -94,10 +100,10 @@ def add_paper(pdf_path: str) -> None:
         # MinerU writes images into an "images/" subdirectory under the auto
         # output folder, so we probe both the direct path and the subdirectory.
         if meta.get("img_path"):
-            auto_dir = os.path.join(parser.output_dir, pdf_name, "auto")
+            backend_dir = os.path.join(parser.output_dir, pdf_name, backend_subdir)
             img_candidates = [
-                os.path.join(auto_dir, meta["img_path"]),
-                os.path.join(auto_dir, "images", meta["img_path"]),
+                os.path.join(backend_dir, meta["img_path"]),
+                os.path.join(backend_dir, "images", meta["img_path"]),
             ]
             for img_abs in img_candidates:
                 if os.path.exists(img_abs):
@@ -108,12 +114,12 @@ def add_paper(pdf_path: str) -> None:
 
         # Resolve equation image paths to absolute in metadata (not embedded).
         if meta.get("equation_imgs"):
-            auto_dir = os.path.join(parser.output_dir, pdf_name, "auto")
+            backend_dir = os.path.join(parser.output_dir, pdf_name, backend_subdir)
             abs_eq_imgs = []
             for eq_img in meta["equation_imgs"]:
                 for candidate in [
-                    os.path.join(auto_dir, eq_img),
-                    os.path.join(auto_dir, "images", eq_img),
+                    os.path.join(backend_dir, eq_img),
+                    os.path.join(backend_dir, "images", eq_img),
                 ]:
                     if os.path.exists(candidate):
                         abs_eq_imgs.append(candidate)
@@ -165,6 +171,15 @@ def query_agent(question: str) -> None:
         logger.info("Agent answer: %s", "".join(final_content))
 
 
+def delete_paper(pdf_name: str) -> None:
+    """Delete a paper from Qdrant and remove its parsed files."""
+    from src.ingest.paper_manager import PaperManager
+
+    logger.info("Deleting paper: %s …", pdf_name)
+    manager = PaperManager()
+    manager.delete_paper(pdf_name, parsed_output_dir="./data/parsed")
+
+
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(
         description="Agentic RAG System for Research Papers"
@@ -179,12 +194,21 @@ if __name__ == "__main__":
     )
     parser_query.add_argument("question", type=str, help="Question to ask the agent")
 
+    parser_delete = subparsers.add_parser(
+        "delete", help="Delete a paper from vector store and remove parsed files"
+    )
+    parser_delete.add_argument(
+        "pdf_name", type=str, help="PDF file name (without extension)"
+    )
+
     args = arg_parser.parse_args()
 
     if args.command == "add":
         add_paper(args.pdf_path)
     elif args.command == "query":
         query_agent(args.question)
+    elif args.command == "delete":
+        delete_paper(args.pdf_name)
     else:
         arg_parser.print_help()
         sys.exit(1)
