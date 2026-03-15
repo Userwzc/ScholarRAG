@@ -20,6 +20,7 @@ from src.ingest.mineru_parser import MinerUParser  # noqa: E402
 from src.rag.vector_store import vector_store  # noqa: E402
 from src.agent.graph import app as agent_app  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
+from config.settings import config  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -35,7 +36,7 @@ def add_paper(pdf_path: str) -> None:
     logger.info("Adding paper from %s …", pdf_path)
 
     # 1. Parse PDF via MinerU
-    parser = MinerUParser(output_dir="./data/parsed")
+    parser = MinerUParser(output_dir="./data/parsed", backend=config.MINERU_BACKEND)
     parsed_data = parser.parse_pdf(pdf_path)
 
     # 2. Chunk into typed, structured segments

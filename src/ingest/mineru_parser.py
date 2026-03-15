@@ -82,7 +82,7 @@ class MinerUParser:
     """
 
     def __init__(
-        self, output_dir: str = "./output", backend: str = "hybrid-auto-engine"
+        self, output_dir: str = "./output", backend: str = "pipeline"
     ):
         self.output_dir = output_dir
         self.backend = backend
