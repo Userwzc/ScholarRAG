@@ -5,3 +5,4 @@ data/
 .env
 models/
 .DS_Store
+.ruff_cache/
