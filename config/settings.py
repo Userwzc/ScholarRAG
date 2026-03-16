@@ -54,7 +54,7 @@ class Config:
     # Maximum number of agent loop iterations before the graph forcibly stops.
     AGENT_MAX_ITERATIONS: int = _parse_int_env("AGENT_MAX_ITERATIONS", 10)
 
-    # MinerU backend selection: pipeline | hybrid-auto-engine 
+    # MinerU backend selection: pipeline | hybrid-auto-engine
     MINERU_BACKEND: str = os.getenv("MINERU_BACKEND", "pipeline")
 
 

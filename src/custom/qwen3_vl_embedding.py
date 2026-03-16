@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 import unicodedata
-import logging
 
 from dataclasses import dataclass
 from typing import Optional, List, Union, Dict, Any
@@ -16,22 +15,21 @@ from transformers.modeling_outputs import ModelOutput
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs
 from transformers.cache_utils import Cache
-from qwen_vl_utils.vision_process import process_vision_info
 
-from .vision_utils import is_image_path, is_video_input, sample_frames  # noqa: F401
+from src.utils.logger import get_logger
+from .qwen3_vl_base import (
+    Qwen3VLBase,
+    MIN_PIXELS,
+    MAX_PIXELS,
+    MAX_TOTAL_PIXELS,
+    FPS,
+    MAX_FRAMES,
+)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-# Constants for configuration
+# Embedding-specific constants
 MAX_LENGTH = 8192
-IMAGE_BASE_FACTOR = 16
-IMAGE_FACTOR = IMAGE_BASE_FACTOR * 2
-MIN_PIXELS = 4 * IMAGE_FACTOR * IMAGE_FACTOR
-MAX_PIXELS = 1800 * IMAGE_FACTOR * IMAGE_FACTOR
-FPS = 1
-MAX_FRAMES = 64
-FRAME_MAX_PIXELS = 768 * IMAGE_FACTOR * IMAGE_FACTOR
-MAX_TOTAL_PIXELS = 10 * FRAME_MAX_PIXELS
 PAD_TOKEN = "<|endoftext|>"
 
 
@@ -129,7 +127,14 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
 
 
 # Define embedder class for processing inputs and generating embeddings
-class Qwen3VLEmbedder:
+class Qwen3VLEmbedder(Qwen3VLBase):
+    """Qwen3-VL embedding model wrapper.
+
+    Inherits shared pixel/frame configuration, token truncation,
+    multimodal normalisation, and vision-info error handling from
+    ``Qwen3VLBase``.
+    """
+
     def __init__(
         self,
         model_name_or_path: str,
@@ -142,16 +147,17 @@ class Qwen3VLEmbedder:
         default_instruction: str = "Represent the user's input.",
         **kwargs,
     ):
+        super().__init__(
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            total_pixels=total_pixels,
+            fps=fps,
+            max_frames=max_frames,
+            default_instruction=default_instruction,
+        )
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         self.max_length = max_length
-        self.min_pixels = min_pixels
-        self.max_pixels = max_pixels
-        self.total_pixels = total_pixels
-        self.fps = fps
-        self.max_frames = max_frames
-
-        self.default_instruction = default_instruction
 
         self.model = Qwen3VLForEmbedding.from_pretrained(
             model_name_or_path, trust_remote_code=True, **kwargs
@@ -169,28 +175,6 @@ class Qwen3VLEmbedder:
             "attention_mask": inputs.get("attention_mask"),
         }
 
-    # Truncate token sequence to a specified max length
-    def _truncate_tokens(self, token_ids: List[int], max_length: int) -> List[int]:
-        if len(token_ids) <= max_length:
-            return token_ids
-
-        special_token_ids = set(self.processor.tokenizer.all_special_ids)
-        num_special = sum(
-            1 for token_idx in token_ids if token_idx in special_token_ids
-        )
-        num_non_special_to_keep = max_length - num_special
-
-        final_token_ids = []
-        non_special_kept_count = 0
-        # Ensure retention of special tokens while truncating the rest
-        for token_idx in token_ids:
-            if token_idx in special_token_ids:
-                final_token_ids.append(token_idx)
-            elif non_special_kept_count < num_non_special_to_keep:
-                final_token_ids.append(token_idx)
-                non_special_kept_count += 1
-        return final_token_ids
-
     def format_model_input(
         self,
         text: Optional[Union[List[str], str]] = None,
@@ -206,7 +190,6 @@ class Qwen3VLEmbedder:
         fps: Optional[float] = None,
         max_frames: Optional[int] = None,
     ) -> List[Dict]:
-
         # Ensure instruction ends with punctuation
         if instruction:
             instruction = instruction.strip()
@@ -215,8 +198,8 @@ class Qwen3VLEmbedder:
             ):
                 instruction = instruction + "."
 
-        # Initialize conversation with system prompts
-        content = []
+        # Build conversation skeleton
+        content: List[Dict] = []
         conversation = [
             {
                 "role": "system",
@@ -227,99 +210,22 @@ class Qwen3VLEmbedder:
             {"role": "user", "content": content},
         ]
 
-        # Normalize text input to list
-        if text is None:
-            texts = []
-        elif isinstance(text, str):
-            texts = [text]
-        else:
-            texts = text
+        # Normalise inputs via base class
+        texts, images, videos = self._normalize_multimodal(text, image, video)
 
-        # Normalize image input to list
-        if image is None:
-            images = []
-        elif not isinstance(image, list):
-            images = [image]
-        else:
-            images = image
-
-        # Normalize video input to list
-        if video is None:
-            videos = []
-        elif is_video_input(video):
-            videos = [video]
-        else:
-            # Assume it's a list of videos
-            videos = video
-
-        # Add text, image, or video content to conversation
         if not texts and not images and not videos:
             content.append({"type": "text", "text": "NULL"})
             return conversation
 
-        # Process each video
-        for vid in videos:
-            video_content = None
-            video_kwargs = {"total_pixels": self.total_pixels}
+        # Build media content (video + image dicts) via base class
+        content.extend(self._build_media_content(images, videos, fps, max_frames))
 
-            if isinstance(vid, list):
-                # Video as frame sequence
-                video_content = vid
-                if self.max_frames is not None:
-                    video_content = sample_frames(video_content, self.max_frames)
-                video_content = [
-                    ("file://" + ele if isinstance(ele, str) else ele)
-                    for ele in video_content
-                ]
-            elif isinstance(vid, str):
-                # Video as file path
-                video_content = (
-                    vid if vid.startswith(("http://", "https://")) else "file://" + vid
-                )
-                video_kwargs = {
-                    "fps": fps or self.fps,
-                    "max_frames": max_frames or self.max_frames,
-                }
-            else:
-                raise TypeError(f"Unrecognized video type: {type(vid)}")
-
-            # Add video input to content
-            if video_content:
-                content.append(
-                    {"type": "video", "video": video_content, **video_kwargs}
-                )
-
-        # Process each image
-        for img in images:
-            image_content = None
-
-            if isinstance(img, Image.Image):
-                image_content = img
-            elif isinstance(img, str):
-                image_content = (
-                    img if img.startswith(("http://", "https://")) else "file://" + img
-                )
-            else:
-                raise TypeError(f"Unrecognized image type: {type(img)}")
-
-            # Add image input to content
-            if image_content:
-                content.append(
-                    {
-                        "type": "image",
-                        "image": image_content,
-                        "min_pixels": self.min_pixels,
-                        "max_pixels": self.max_pixels,
-                    }
-                )
-
-        # Process each text
+        # Append text entries
         for txt in texts:
             content.append({"type": "text", "text": txt})
 
         return conversation
 
-    # Preprocess input conversations for model consumption
     def _preprocess_inputs(
         self, conversations: List[List[Dict]]
     ) -> Dict[str, torch.Tensor]:
@@ -327,23 +233,11 @@ class Qwen3VLEmbedder:
             conversations, add_generation_prompt=True, tokenize=False
         )
 
-        try:
-            images, video_inputs, video_kwargs = process_vision_info(
-                conversations,
-                image_patch_size=16,
-                return_video_metadata=True,
-                return_video_kwargs=True,
-            )
-        except Exception as e:
-            logger.error(f"Error in processing vision info: {e}")
-            images = None
-            video_inputs = None
-            video_kwargs = {"do_sample_frames": False}
-            text = self.processor.apply_chat_template(
-                [{"role": "user", "content": [{"type": "text", "text": "NULL"}]}],
-                add_generation_prompt=True,
-                tokenize=False,
-            )
+        images, video_inputs, video_kwargs, text_override = (
+            self._safe_process_vision_info(conversations, self.processor)
+        )
+        if text_override:
+            text = text_override
 
         if video_inputs is not None:
             videos, video_metadata = zip(*video_inputs)
@@ -366,24 +260,23 @@ class Qwen3VLEmbedder:
         )
         return inputs
 
-    # Pool the last hidden state by attention mask for embeddings
     @staticmethod
     def _pooling_last(
         hidden_state: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
+        """Pool the last non-padding hidden state for each sequence."""
         flipped_tensor = attention_mask.flip(dims=[1])
         last_one_positions = flipped_tensor.argmax(dim=1)
         col = attention_mask.shape[1] - last_one_positions - 1
         row = torch.arange(hidden_state.shape[0], device=hidden_state.device)
         return hidden_state[row, col]
 
-    # Process inputs to generate normalized embeddings
     def process(
         self, inputs: List[Dict[str, Any]], normalize: bool = True, batch_size: int = 4
     ) -> torch.Tensor:
+        """Process inputs in batches and return normalised embedding tensors."""
         all_embeddings = []
 
-        # Process in smaller batches to avoid OOM
         for i in range(0, len(inputs), batch_size):
             batch_inputs = inputs[i : i + batch_size]
 
@@ -413,9 +306,6 @@ class Qwen3VLEmbedder:
                 batch_embeddings = F.normalize(batch_embeddings, p=2, dim=-1)
 
             all_embeddings.append(batch_embeddings)
-
-            # Clear cache after each batch
             torch.cuda.empty_cache()
 
-        # Concatenate all batches
         return torch.cat(all_embeddings, dim=0)

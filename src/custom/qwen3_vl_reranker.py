@@ -1,27 +1,32 @@
 import torch
-import logging
 from PIL import Image
 from typing import List, Union, Optional, Dict
-from qwen_vl_utils import process_vision_info
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 
-from .vision_utils import is_image_path, is_video_input, sample_frames  # noqa: F401
+from src.utils.logger import get_logger
+from .qwen3_vl_base import (
+    Qwen3VLBase,
+    MIN_PIXELS,
+    MAX_PIXELS,
+    MAX_TOTAL_PIXELS,
+    FPS,
+    MAX_FRAMES,
+)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-# Default configuration constants
+# Reranker-specific max length (longer than embedding to handle query+doc pairs)
 MAX_LENGTH = 10240
-IMAGE_BASE_FACTOR = 16
-IMAGE_FACTOR = IMAGE_BASE_FACTOR * 2
-MIN_PIXELS = 4 * IMAGE_FACTOR * IMAGE_FACTOR
-MAX_PIXELS = 1800 * IMAGE_FACTOR * IMAGE_FACTOR
-FPS = 1
-MAX_FRAMES = 64
-FRAME_MAX_PIXELS = 768 * IMAGE_FACTOR * IMAGE_FACTOR
-MAX_TOTAL_PIXELS = 10 * FRAME_MAX_PIXELS
 
 
-class Qwen3VLReranker:
+class Qwen3VLReranker(Qwen3VLBase):
+    """Qwen3-VL reranker model wrapper.
+
+    Inherits shared pixel/frame configuration, token truncation,
+    multimodal normalisation, and vision-info error handling from
+    ``Qwen3VLBase``.
+    """
+
     def __init__(
         self,
         model_name_or_path: str,
@@ -34,15 +39,17 @@ class Qwen3VLReranker:
         default_instruction: str = "Given a search query, retrieve relevant candidates that answer the query.",
         **kwargs,
     ):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        super().__init__(
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            total_pixels=total_pixels,
+            fps=fps,
+            max_frames=max_frames,
+            default_instruction=default_instruction,
+        )
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_length = max_length
-        self.min_pixels = min_pixels
-        self.max_pixels = max_pixels
-        self.total_pixels = total_pixels
-        self.fps = fps
-        self.max_frames = max_frames
-        self.default_instruction = default_instruction
 
         # Load the language model
         lm = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -83,58 +90,23 @@ class Qwen3VLReranker:
         scores = torch.sigmoid(scores).squeeze(-1).cpu().detach().tolist()
         return scores
 
-    def truncate_tokens_optimized(
-        self, tokens: List[int], max_length: int, special_tokens: List[int]
-    ) -> List[int]:
-        if len(tokens) <= max_length:
-            return tokens
-
-        special_tokens_set = set(special_tokens)
-
-        # Calculate budget: how many non-special tokens we can keep
-        num_special = sum(1 for token in tokens if token in special_tokens_set)
-        num_non_special_to_keep = max_length - num_special
-
-        # Build final list according to budget
-        final_tokens = []
-        non_special_kept_count = 0
-        for token in tokens:
-            if token in special_tokens_set:
-                final_tokens.append(token)
-            elif non_special_kept_count < num_non_special_to_keep:
-                final_tokens.append(token)
-                non_special_kept_count += 1
-
-        return final_tokens
-
     def tokenize(self, pairs: List[Dict], **kwargs) -> Dict:
         max_length = self.max_length
         text = self.processor.apply_chat_template(
             pairs, tokenize=False, add_generation_prompt=True
         )
 
-        try:
-            images, videos, video_kwargs = process_vision_info(
-                pairs,
-                image_patch_size=16,
-                return_video_kwargs=True,
-                return_video_metadata=True,
-            )
-        except Exception as e:
-            logger.error(f"Error in processing vision info: {e}")
-            images = None
-            videos = None
-            video_kwargs = {"do_sample_frames": False}
-            text = self.processor.apply_chat_template(
-                [{"role": "user", "content": [{"type": "text", "text": "NULL"}]}],
-                add_generation_prompt=True,
-                tokenize=False,
-            )
+        images, video_inputs, video_kwargs, text_override = (
+            self._safe_process_vision_info(pairs, self.processor)
+        )
+        if text_override:
+            text = text_override
 
-        if videos is not None:
-            videos, video_metadatas = zip(*videos)
+        if video_inputs is not None:
+            videos, video_metadatas = zip(*video_inputs)
             videos, video_metadatas = list(videos), list(video_metadatas)
         else:
+            videos = None
             video_metadatas = None
 
         inputs = self.processor(
@@ -153,14 +125,15 @@ class Qwen3VLReranker:
         # added by add_generation_prompt=True (e.g. "<|im_start|>assistant\n").
         # We truncate only the body, then re-append the suffix.
         GENERATION_SUFFIX_LEN = 5
+        special_ids = set(self.processor.tokenizer.all_special_ids)
         for i, ele in enumerate(inputs["input_ids"]):
             inputs["input_ids"][i] = (
-                self.truncate_tokens_optimized(
-                    inputs["input_ids"][i][:-GENERATION_SUFFIX_LEN],
+                self._truncate_tokens(
+                    ele[:-GENERATION_SUFFIX_LEN],
                     max_length,
-                    self.processor.tokenizer.all_special_ids,
+                    special_ids,
                 )
-                + inputs["input_ids"][i][-GENERATION_SUFFIX_LEN:]
+                + ele[-GENERATION_SUFFIX_LEN:]
             )
 
         # Apply padding
@@ -190,95 +163,19 @@ class Qwen3VLReranker:
         fps: Optional[float] = None,
         max_frames: Optional[int] = None,
     ) -> List[Dict]:
-        content = []
-        content.append({"type": "text", "text": prefix})
+        content: List[Dict] = [{"type": "text", "text": prefix}]
 
-        # Normalize text input to list
-        if text is None:
-            texts = []
-        elif isinstance(text, str):
-            texts = [text]
-        else:
-            texts = text
-
-        # Normalize image input to list
-        if image is None:
-            images = []
-        elif not isinstance(image, list):
-            images = [image]
-        else:
-            images = image
-
-        # Normalize video input to list
-        if video is None:
-            videos = []
-        elif is_video_input(video):
-            videos = [video]
-        else:
-            # Assume it's a list of videos
-            videos = video
+        # Normalise inputs via base class
+        texts, images, videos = self._normalize_multimodal(text, image, video)
 
         if not texts and not images and not videos:
             content.append({"type": "text", "text": "NULL"})
             return content
 
-        # Process each video
-        for vid in videos:
-            video_content = None
-            video_kwargs = {"total_pixels": self.total_pixels}
+        # Build media content (video + image dicts) via base class
+        content.extend(self._build_media_content(images, videos, fps, max_frames))
 
-            if isinstance(vid, list):
-                # Video as frame sequence
-                video_content = vid
-                if self.max_frames is not None:
-                    video_content = sample_frames(video_content, self.max_frames)
-                video_content = [
-                    ("file://" + ele if isinstance(ele, str) else ele)
-                    for ele in video_content
-                ]
-            elif isinstance(vid, str):
-                # Video as file path
-                video_content = (
-                    vid if vid.startswith(("http://", "https://")) else "file://" + vid
-                )
-                video_kwargs = {
-                    "fps": fps or self.fps,
-                    "max_frames": max_frames or self.max_frames,
-                }
-            else:
-                raise TypeError(f"Unrecognized video type: {type(vid)}")
-
-            # Add video input to content
-            if video_content:
-                content.append(
-                    {"type": "video", "video": video_content, **video_kwargs}
-                )
-
-        # Process each image
-        for img in images:
-            image_content = None
-
-            if isinstance(img, Image.Image):
-                image_content = img
-            elif isinstance(img, str):
-                image_content = (
-                    img if img.startswith(("http://", "https://")) else "file://" + img
-                )
-            else:
-                raise TypeError(f"Unrecognized image type: {type(img)}")
-
-            # Add image input to content
-            if image_content:
-                content.append(
-                    {
-                        "type": "image",
-                        "image": image_content,
-                        "min_pixels": self.min_pixels,
-                        "max_pixels": self.max_pixels,
-                    }
-                )
-
-        # Process each text
+        # Append text entries
         for txt in texts:
             content.append({"type": "text", "text": txt})
 
@@ -312,8 +209,7 @@ class Qwen3VLReranker:
         fps: Optional[float] = None,
         max_frames: Optional[int] = None,
     ) -> List[Dict]:
-        inputs = []
-        inputs.append(
+        result = [
             {
                 "role": "system",
                 "content": [
@@ -323,7 +219,7 @@ class Qwen3VLReranker:
                     }
                 ],
             }
-        )
+        ]
 
         # Handle query_text as tuple containing (instruction, text)
         if isinstance(query_text, tuple):
@@ -331,44 +227,42 @@ class Qwen3VLReranker:
         else:
             instruct = instruction
 
-        contents = []
-        contents.append(
+        contents: List[Dict] = [
             {
                 "type": "text",
                 "text": "<Instruct>: " + (instruct or self.default_instruction),
             }
-        )
+        ]
 
         # Format query content
-        query_content = self.format_mm_content(
-            query_text,
-            query_image,
-            query_video,
-            prefix="<Query>:",
-            fps=fps,
-            max_frames=max_frames,
+        contents.extend(
+            self.format_mm_content(
+                query_text,
+                query_image,
+                query_video,
+                prefix="<Query>:",
+                fps=fps,
+                max_frames=max_frames,
+            )
         )
-        contents.extend(query_content)
 
         # Format document content
-        doc_content = self.format_mm_content(
-            doc_text,
-            doc_image,
-            doc_video,
-            prefix="\n<Document>:",
-            fps=fps,
-            max_frames=max_frames,
+        contents.extend(
+            self.format_mm_content(
+                doc_text,
+                doc_image,
+                doc_video,
+                prefix="\n<Document>:",
+                fps=fps,
+                max_frames=max_frames,
+            )
         )
-        contents.extend(doc_content)
 
-        inputs.append({"role": "user", "content": contents})
+        result.append({"role": "user", "content": contents})
+        return result
 
-        return inputs
-
-    def process(
-        self,
-        inputs: Dict,
-    ) -> List[float]:
+    def process(self, inputs: Dict) -> List[float]:
+        """Score query-document pairs and return a list of relevance scores."""
         instruction = inputs.get("instruction", self.default_instruction)
 
         query = inputs.get("query", {})
@@ -399,5 +293,4 @@ class Qwen3VLReranker:
         tokenized_inputs = {
             k: v.to(self.model.device) for k, v in tokenized_inputs.items()
         }
-        final_scores = self.compute_scores(tokenized_inputs)
-        return final_scores
+        return self.compute_scores(tokenized_inputs)

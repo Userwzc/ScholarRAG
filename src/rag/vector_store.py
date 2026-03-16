@@ -8,6 +8,7 @@ from qdrant_client.http.models import Distance, VectorParams
 from config.settings import config
 from src.utils.logger import get_logger
 from .embedding import Qwen3VLEmbeddings
+from .reranker_strategy import NoOpReranker, RerankerStrategy
 
 logger = get_logger(__name__)
 
@@ -28,8 +29,6 @@ def _content_uuid(*parts: str) -> str:
 class PaperVectorStore:
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6333,
         collection_name: str = "papers_rag",
     ):
         self.client = QdrantClient(
@@ -39,7 +38,7 @@ class PaperVectorStore:
         self.embeddings = Qwen3VLEmbeddings(model_name_or_path=config.EMBEDDING_MODEL)
         self._ensure_collection()
 
-        self._reranker = None
+        self._reranker: RerankerStrategy = NoOpReranker()
         if config.RERANKER_MODEL:
             self._load_reranker(config.RERANKER_MODEL)
 
@@ -73,14 +72,120 @@ class PaperVectorStore:
     def _build_filter(
         self, filter_metadata: Optional[Dict[str, Any]]
     ) -> Optional[models.Filter]:
-        """Build a Qdrant exact-match filter from a key-value dict."""
+        """Build a Qdrant filter from a flat dict or a small DSL."""
         if not filter_metadata:
             return None
+
+        if any(key in filter_metadata for key in ("must", "should", "must_not")):
+            return self._build_filter_dsl(filter_metadata)
+
         conditions = [
-            models.FieldCondition(key=key, match=models.MatchValue(value=val))
-            for key, val in filter_metadata.items()
+            self._field_condition(key, val) for key, val in filter_metadata.items()
         ]
+        conditions = [condition for condition in conditions if condition is not None]
         return models.Filter(must=conditions) if conditions else None
+
+    def _field_condition(
+        self,
+        key: str,
+        value: Any,
+    ) -> models.FieldCondition | None:
+        """Translate a single field spec into a Qdrant field condition."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            if "any" in value:
+                return models.FieldCondition(
+                    key=key,
+                    match=models.MatchAny(any=value["any"]),
+                )
+            if "gte" in value or "lte" in value or "gt" in value or "lt" in value:
+                return models.FieldCondition(
+                    key=key,
+                    range=models.Range(
+                        gte=value.get("gte"),
+                        lte=value.get("lte"),
+                        gt=value.get("gt"),
+                        lt=value.get("lt"),
+                    ),
+                )
+            if "value" in value:
+                value = value["value"]
+
+        if isinstance(value, list):
+            return models.FieldCondition(
+                key=key,
+                match=models.MatchAny(any=value),
+            )
+
+        return models.FieldCondition(key=key, match=models.MatchValue(value=value))
+
+    def _build_filter_dsl(self, spec: Dict[str, Any]) -> Optional[models.Filter]:
+        """Build a richer Qdrant filter supporting must/should/must_not."""
+        must_conditions = self._condition_list(spec.get("must", []))
+        should_conditions = self._condition_list(spec.get("should", []))
+        must_not_conditions = self._condition_list(spec.get("must_not", []))
+
+        if not must_conditions and not should_conditions and not must_not_conditions:
+            return None
+
+        return models.Filter(
+            must=must_conditions or None,
+            should=should_conditions or None,
+            must_not=must_not_conditions or None,
+        )
+
+    def _condition_list(self, items: Any) -> List[models.Condition]:
+        """Normalize a list of condition specs into Qdrant conditions."""
+        if not items:
+            return []
+
+        if isinstance(items, dict):
+            items = [items]
+
+        conditions: List[models.Condition] = []
+        for item in items:
+            condition = self._condition_from_spec(item)
+            if condition is not None:
+                conditions.append(condition)
+        return conditions
+
+    def _condition_from_spec(self, spec: Any) -> Optional[models.Condition]:
+        """Translate a condition spec into a Qdrant condition."""
+        if not isinstance(spec, dict):
+            return None
+
+        if "must" in spec or "should" in spec or "must_not" in spec:
+            return self._build_filter_dsl(spec)
+
+        key = spec.get("key")
+        if not key:
+            return None
+
+        if "match" in spec:
+            return models.FieldCondition(
+                key=key,
+                match=models.MatchValue(value=spec["match"]),
+            )
+        if "any" in spec:
+            return models.FieldCondition(
+                key=key,
+                match=models.MatchAny(any=spec["any"]),
+            )
+        if "range" in spec:
+            range_spec = spec["range"]
+            if not isinstance(range_spec, dict):
+                return None
+            return models.FieldCondition(
+                key=key,
+                range=models.Range(
+                    gte=range_spec.get("gte"),
+                    lte=range_spec.get("lte"),
+                    gt=range_spec.get("gt"),
+                    lt=range_spec.get("lt"),
+                ),
+            )
+        return None
 
     def rerank(
         self,
@@ -89,19 +194,14 @@ class PaperVectorStore:
     ) -> List[Dict[str, Any]]:
         """Re-score *results* with the reranker and return them sorted by reranker score.
 
-        If no reranker is configured, the original list is returned unchanged.
+        If the active reranker is a ``NoOpReranker``, the original list is
+        returned unchanged.
         Each result dict must contain a ``"payload"`` key.
         """
-        if self._reranker is None or not results:
+        if isinstance(self._reranker, NoOpReranker) or not results:
             return results
 
-        def _chunk_text(payload: Dict[str, Any]) -> str:
-            mm = payload.get("_multimodal_input")
-            if mm:
-                return mm.get("text", "")
-            return payload.get("page_content", "")
-
-        documents = [{"text": _chunk_text(r["payload"])} for r in results]
+        documents = [{"text": self._payload_rerank_text(r["payload"])} for r in results]
         try:
             scores = self._reranker.process(
                 {"query": {"text": query}, "documents": documents}
@@ -117,28 +217,66 @@ class PaperVectorStore:
         )
         return [{"score": score, "payload": r["payload"]} for score, r in ranked]
 
-    def store_paper_chunks(
-        self, chunks: List[str], metadatas: List[Dict[str, Any]]
-    ) -> None:
-        """Embeds and uploads plain-text chunks to the Qdrant collection."""
-        vectors = self.embeddings.embed_documents(chunks)
-        points = [
-            models.PointStruct(
-                id=_content_uuid(
-                    metadata.get("pdf_name", ""),
-                    str(metadata.get("page_idx", "")),
-                    metadata.get("chunk_type", "text"),
-                    chunk,
-                ),
-                vector=vector,
-                payload={**metadata, "page_content": chunk},
-            )
-            for chunk, vector, metadata in zip(chunks, vectors, metadatas)
+    def _payload_rerank_text(self, payload: Dict[str, Any]) -> str:
+        """Build richer rerank text from metadata and multimodal fields."""
+        mm = payload.get("_multimodal_input") or {}
+        text = mm.get("text", "") or payload.get("page_content", "")
+
+        fields = [
+            payload.get("title", ""),
+            payload.get("authors", ""),
+            payload.get("section_path", payload.get("heading", "")),
+            payload.get("figure_or_table_label", ""),
+            payload.get("caption", ""),
+            payload.get("footnote", ""),
+            text,
         ]
-        self.client.upsert(collection_name=self.collection_name, points=points)
-        logger.info(
-            "Stored %d chunks in collection %s.", len(chunks), self.collection_name
-        )
+
+        chunk_type = str(payload.get("chunk_type", ""))
+        if chunk_type:
+            fields.insert(0, f"Type: {chunk_type}")
+        page_idx = payload.get("page_idx")
+        if page_idx != "" and page_idx is not None:
+            fields.insert(0, f"Page: {page_idx}")
+
+        return "\n".join(str(field).strip() for field in fields if str(field).strip())
+
+    def _query_candidates(
+        self,
+        query: str,
+        candidate_k: int,
+        filter_metadata: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve dense candidates before thresholding/reranking."""
+        vector = self.embeddings.embed_query(query)
+        filter_params = self._build_filter(filter_metadata)
+        results = self.client.query_points(
+            collection_name=self.collection_name,
+            query=vector,
+            limit=candidate_k,
+            query_filter=filter_params,
+        ).points
+        return [{"score": res.score, "payload": res.payload} for res in results]
+
+    def _apply_score_threshold(
+        self,
+        results: List[Dict[str, Any]],
+        score_threshold: float,
+    ) -> List[Dict[str, Any]]:
+        """Discard low-scoring candidates before reranking."""
+        if score_threshold <= 0.0:
+            return results
+
+        before = len(results)
+        filtered = [r for r in results if r["score"] >= score_threshold]
+        if len(filtered) < before:
+            logger.debug(
+                "Score threshold %.2f removed %d/%d candidates.",
+                score_threshold,
+                before - len(filtered),
+                before,
+            )
+        return filtered
 
     def store_multimodal_inputs(
         self,
@@ -197,6 +335,7 @@ class PaperVectorStore:
         filter_metadata: Optional[Dict[str, Any]] = None,
         rerank: bool = True,
         score_threshold: Optional[float] = None,
+        candidate_k: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Vector search on the collection using a text query.
 
@@ -219,34 +358,23 @@ class PaperVectorStore:
         if score_threshold is None:
             score_threshold = config.SCORE_THRESHOLD
 
-        vector = self.embeddings.embed_query(query)
-        filter_params = self._build_filter(filter_metadata)
-
         # Over-fetch when reranking so the reranker has more candidates to sort.
-        fetch_k = top_k * 3 if (rerank and self._reranker) else top_k
+        fetch_k = candidate_k
+        if fetch_k is None:
+            fetch_k = (
+                top_k * 3
+                if (rerank and not isinstance(self._reranker, NoOpReranker))
+                else top_k
+            )
 
-        results = self.client.query_points(
-            collection_name=self.collection_name,
-            query=vector,
-            limit=fetch_k,
-            query_filter=filter_params,
-        ).points
+        raw = self._query_candidates(
+            query=query,
+            candidate_k=fetch_k,
+            filter_metadata=filter_metadata,
+        )
+        raw = self._apply_score_threshold(raw, score_threshold)
 
-        raw = [{"score": res.score, "payload": res.payload} for res in results]
-
-        # Discard low-relevance chunks before returning / reranking.
-        if score_threshold > 0.0:
-            before = len(raw)
-            raw = [r for r in raw if r["score"] >= score_threshold]
-            if len(raw) < before:
-                logger.debug(
-                    "Score threshold %.2f removed %d/%d candidates.",
-                    score_threshold,
-                    before - len(raw),
-                    before,
-                )
-
-        if rerank and self._reranker:
+        if rerank:
             raw = self.rerank(query, raw)
 
         return raw[:top_k]
@@ -273,6 +401,25 @@ class PaperVectorStore:
         ).points
 
         return [{"score": res.score, "payload": res.payload} for res in results]
+
+    def fetch_by_metadata(
+        self,
+        filter_metadata: Dict[str, Any],
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Fetch points by exact-match metadata without vector search."""
+        filter_params = self._build_filter(filter_metadata)
+        if filter_params is None:
+            return []
+
+        points, _ = self.client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=filter_params,
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [{"payload": point.payload} for point in points]
 
     def delete_paper(self, pdf_name: str) -> bool:
         """Delete all chunks associated with a specific paper by pdf_name.

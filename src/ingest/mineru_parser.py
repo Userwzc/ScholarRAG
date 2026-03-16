@@ -56,6 +56,12 @@ _INLINE_SUBHEADING_RE = re.compile(
 # 仅匹配行尾连字符断词（连字符后紧跟空白符），用于拼接跨行单词
 _EOL_HYPHEN_RE = re.compile(r"-\s+")
 
+# 抽取 Figure/Table 等局部标签
+_VISUAL_LABEL_RE = re.compile(
+    r"^\s*((?:Figure|Fig\.?|Table|Algorithm)\s+\d+[A-Za-z]?)",
+    flags=re.IGNORECASE,
+)
+
 
 def _merge_hyphen_lines(lines: List[str]) -> str:
     """将多行文本合并，并修复行尾连字符造成的断词。
@@ -81,9 +87,7 @@ class MinerUParser:
     from Research PDF papers.
     """
 
-    def __init__(
-        self, output_dir: str = "./output", backend: str = "pipeline"
-    ):
+    def __init__(self, output_dir: str = "./output", backend: str = "pipeline"):
         self.output_dir = output_dir
         self.backend = backend
         os.makedirs(self.output_dir, exist_ok=True)
@@ -97,21 +101,26 @@ class MinerUParser:
 
     def _scan_output_files(
         self, local_output_dir: str
-    ) -> tuple[Optional[str], Optional[str]]:
-        """扫描 MinerU 输出目录，返回 (middle_json_path, md_path)。"""
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """扫描 MinerU 输出目录，返回 (middle_json_path, md_path, content_list_path)。"""
         target_json: Optional[str] = None
         target_md: Optional[str] = None
+        target_content_list: Optional[str] = None
         for root, _, files in os.walk(local_output_dir):
             for file in files:
                 if file.endswith("_middle.json"):
                     target_json = os.path.join(root, file)
+                elif file.endswith("_content_list.json") and not file.endswith(
+                    "_content_list_v2.json"
+                ):
+                    target_content_list = os.path.join(root, file)
                 elif (
                     file.endswith(".md")
                     and not file.endswith("_clean.md")
                     and not target_md
                 ):
                     target_md = os.path.join(root, file)
-        return target_json, target_md
+        return target_json, target_md, target_content_list
 
     def parse_pdf(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -130,12 +139,23 @@ class MinerUParser:
         if MINERU_AVAILABLE:
             try:
                 # 先检查输出文件是否已存在，避免重复解析
-                target_json, target_md = self._scan_output_files(local_output_dir)
+                target_json, target_md, target_content_list = self._scan_output_files(
+                    local_output_dir
+                )
                 if not target_json:
                     logger.info(
-                        f"Parsing {pdf_name} with MinerU ({self.backend} backend)..."
+                        "Parsing %s with MinerU (%s backend)...", pdf_name, self.backend
                     )
                     assert read_fn is not None and do_parse is not None
+
+                    # Mirror what the MinerU CLI does before calling do_parse:
+                    # set MINERU_MODEL_SOURCE so the VLM/hybrid backend can
+                    # locate model weights on ModelScope/HuggingFace.
+                    from config.settings import config as _cfg  # noqa: PLC0415
+
+                    if os.getenv("MINERU_MODEL_SOURCE") is None:
+                        os.environ["MINERU_MODEL_SOURCE"] = _cfg.MINERU_MODEL_SOURCE
+
                     pdf_bytes = read_fn(Path(pdf_path))
                     do_parse(
                         output_dir=self.output_dir,
@@ -149,16 +169,24 @@ class MinerUParser:
                         f_dump_content_list=True,
                         f_dump_middle_json=True,
                     )
-                    target_json, target_md = self._scan_output_files(local_output_dir)
+                    target_json, target_md, target_content_list = (
+                        self._scan_output_files(local_output_dir)
+                    )
                 else:
                     logger.info(
-                        f"Found existing MinerU output for {pdf_name}, skipping re-parse."
+                        "Found existing MinerU output for %s, skipping re-parse.",
+                        pdf_name,
                     )
 
                 raw_json_data: Dict[str, Any] = {}
                 if target_json and os.path.exists(target_json):
                     with open(target_json, "r", encoding="utf-8") as f:
                         raw_json_data = json.load(f)
+
+                content_list_data: List[Dict[str, Any]] = []
+                if target_content_list and os.path.exists(target_content_list):
+                    with open(target_content_list, "r", encoding="utf-8") as f:
+                        content_list_data = json.load(f)
 
                 md_content = ""
                 if target_md and os.path.exists(target_md):
@@ -170,22 +198,25 @@ class MinerUParser:
                     "title": pdf_name,
                     "markdown": md_content,
                     "middle_json": raw_json_data,
+                    "content_list": content_list_data,
                 }
 
             except Exception as e:
-                logger.error(f"MinerU parsing failed: {e}")
+                logger.error("MinerU parsing failed: %s", e)
                 return {
                     "pdf_name": pdf_name,
                     "title": pdf_name,
                     "markdown": f"MinerU parsing failed: {e}",
                     "middle_json": {},
+                    "content_list": [],
                 }
         else:
-            logger.info(f"Mock analyzing PDF: {pdf_name}...")
+            logger.info("Mock analyzing PDF: %s...", pdf_name)
             return {
                 "pdf_name": pdf_name,
                 "title": pdf_name,
                 "markdown": f"# {pdf_name}\n\nMock data.",
+                "content_list": [],
                 "middle_json": {
                     "pdf_info": [
                         {
@@ -213,8 +244,16 @@ class MinerUParser:
     def chunk_content(
         self, parsed_data: Dict[str, Any]
     ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """
-        Uses the granular json parsing if available, otherwise falls back to markdown splitting.
+        """Parse structured output into retrievable chunks.
+
+        Both pipeline and VLM/hybrid backends are processed through
+        ``process_middle_json()``.  The VLM middle.json is structurally
+        compatible with the pipeline format; the only differences (``list``
+        sub_type, ``code`` blocks, extra ``discarded_blocks`` types, ``angle``
+        field) are all handled inside ``process_middle_json()`` already.
+
+        Fallback: if no middle_json is present, split the raw ``*.md`` with
+        MarkdownTextSplitter.
         """
         middle_json = parsed_data.get("middle_json", {})
         if middle_json:
@@ -224,7 +263,24 @@ class MinerUParser:
         splitter = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=200)
         text_chunks = splitter.split_text(md_text)
         chunks = [
-            {"content": chunk, "type": "text", "metadata": {}} for chunk in text_chunks
+            {
+                "content": chunk,
+                "type": "text",
+                "metadata": {
+                    "chunk_order": index,
+                    "page_chunk_order": index,
+                    "section_path": "",
+                    "section_depth": 0,
+                    "local_label": "",
+                    "backend": self.backend,
+                    "has_caption": False,
+                    "has_footnote": False,
+                    "has_image": False,
+                    "has_equation_images": False,
+                    "figure_or_table_label": "",
+                },
+            }
+            for index, chunk in enumerate(text_chunks)
         ]
         return chunks, {}
 
@@ -258,6 +314,8 @@ class MinerUParser:
         current_chunk_length: int = 0
         current_equation_imgs: List[str] = []
         current_page_idx: int = 0
+        current_page_chunk_order: int = 0
+        chunk_order: int = 0
 
         # 多级标题栈：[(level, heading_text), ...]
         # level 由数字前缀推断（"4" → 1, "4.1" → 2, "4.1.1" → 3）
@@ -471,6 +529,51 @@ class MinerUParser:
                 return f"{path} > {local_label}" if path else local_label
             return path
 
+        def infer_visual_label(text: str) -> str:
+            """Extract labels like 'Table 3' or 'Figure 4' from captions."""
+            match = _VISUAL_LABEL_RE.match(text.strip())
+            return match.group(1) if match else ""
+
+        def append_chunk(
+            content: str,
+            chunk_type: str,
+            metadata: Dict[str, Any],
+        ) -> None:
+            nonlocal chunk_order, current_page_chunk_order
+
+            section_path = str(metadata.get("heading", current_heading_path()) or "")
+            caption = str(metadata.get("caption", "") or "")
+            footnote = str(metadata.get("footnote", "") or "")
+            img_path = str(metadata.get("img_path", "") or "")
+
+            enriched_metadata = dict(metadata)
+            enriched_metadata.setdefault("heading", section_path)
+            enriched_metadata.setdefault("section_path", section_path)
+            enriched_metadata.setdefault(
+                "section_depth", len(heading_stack) + (1 if local_label else 0)
+            )
+            enriched_metadata.setdefault("local_label", local_label)
+            enriched_metadata.setdefault("backend", self.backend)
+            enriched_metadata["chunk_order"] = chunk_order
+            enriched_metadata["page_chunk_order"] = current_page_chunk_order
+            enriched_metadata.setdefault("has_caption", bool(caption))
+            enriched_metadata.setdefault("has_footnote", bool(footnote))
+            enriched_metadata.setdefault("has_image", bool(img_path))
+            enriched_metadata.setdefault("has_equation_images", False)
+            enriched_metadata.setdefault(
+                "figure_or_table_label", infer_visual_label(caption)
+            )
+
+            chunks.append(
+                {
+                    "content": content,
+                    "type": chunk_type,
+                    "metadata": enriched_metadata,
+                }
+            )
+            chunk_order += 1
+            current_page_chunk_order += 1
+
         def split_large_text(text: str) -> List[str]:
             """
             对超过 max_chunk_size 的单段文本做 tiktoken 感知的二次分割。
@@ -508,14 +611,9 @@ class MinerUParser:
             }
             if current_equation_imgs:
                 meta["equation_imgs"] = current_equation_imgs.copy()
+                meta["has_equation_images"] = True
 
-            chunks.append(
-                {
-                    "content": combined_text,
-                    "type": "text",
-                    "metadata": meta,
-                }
-            )
+            append_chunk(combined_text, "text", meta)
             current_text_chunk = []
             current_chunk_length = 0
             current_equation_imgs = []
@@ -527,6 +625,7 @@ class MinerUParser:
         pdf_info = middle_data.get("pdf_info", [])
         for page_data in pdf_info:
             current_page_idx = page_data.get("page_idx", current_page_idx)
+            current_page_chunk_order = 0
 
             # pipeline 后端：通过关键词触发；超过第3页强制开启
             if current_page_idx >= 3:
@@ -549,15 +648,15 @@ class MinerUParser:
                     # 第一个 title（页0或页1）视为论文标题
                     if not doc_metadata["title_extracted"]:
                         doc_metadata["title_extracted"] = text_content
-                        chunks.append(
+                        append_chunk(
+                            f"# {text_content}",
+                            "title",
                             {
-                                "content": f"# {text_content}",
-                                "type": "title",
-                                "metadata": {
-                                    "heading": "Title",
-                                    "page_idx": current_page_idx,
-                                },
-                            }
+                                "heading": "Title",
+                                "section_path": "Title",
+                                "section_depth": 1,
+                                "page_idx": current_page_idx,
+                            },
                         )
                         continue
 
@@ -574,9 +673,11 @@ class MinerUParser:
                         # （不推入 current_text_chunk，由后续条目填充）
                         continue
 
-                    # 普通章节标题：先 flush 旧 chunk，再更新 heading_stack
+                    # 普通章节标题（附录等）：退出参考文献区域，恢复正文处理
                     # 注意：heading 本身不推入 current_text_chunk，
                     # flush_text_chunk() 会自动把 current_heading_path() 作为前缀写入
+                    if in_references:
+                        in_references = False
                     flush_text_chunk()
                     update_heading_stack(text_content.strip())
                     continue
@@ -614,18 +715,16 @@ class MinerUParser:
                         parts.append(f"Footnote: {footnote}")
                     if img_path:
                         parts.append(f"Image Path: {img_path}")
-                    chunks.append(
+                    append_chunk(
+                        "\n".join(parts),
+                        "table",
                         {
-                            "content": "\n".join(parts),
-                            "type": "table",
-                            "metadata": {
-                                "heading": heading_prefix,
-                                "page_idx": current_page_idx,
-                                "img_path": img_path,
-                                "caption": caption,
-                                "footnote": footnote,
-                            },
-                        }
+                            "heading": heading_prefix,
+                            "page_idx": current_page_idx,
+                            "img_path": img_path,
+                            "caption": caption,
+                            "footnote": footnote,
+                        },
                     )
 
                 # -------- image -------- #
@@ -642,18 +741,16 @@ class MinerUParser:
                         parts.append(f"Footnote: {footnote}")
                     if img_path:
                         parts.append(f"Image Path: {img_path}")
-                    chunks.append(
+                    append_chunk(
+                        "\n".join(parts),
+                        "image",
                         {
-                            "content": "\n".join(parts),
-                            "type": "image",
-                            "metadata": {
-                                "heading": heading_prefix,
-                                "page_idx": current_page_idx,
-                                "img_path": img_path,
-                                "caption": caption,
-                                "footnote": footnote,
-                            },
-                        }
+                            "heading": heading_prefix,
+                            "page_idx": current_page_idx,
+                            "img_path": img_path,
+                            "caption": caption,
+                            "footnote": footnote,
+                        },
                     )
 
                 # -------- interline equation -------- #
@@ -668,6 +765,13 @@ class MinerUParser:
 
                 # -------- list block -------- #
                 elif b_type == "list":
+                    # VLM 后端：sub_type="ref_text" 直接归入参考文献，
+                    # 比靠 REFERENCES 标题关键词检测更可靠。
+                    if block.get("sub_type") == "ref_text":
+                        ref_items = get_list_items(block)
+                        doc_metadata["references"].extend(ref_items)
+                        continue
+
                     # [P1] 使用 get_list_items 正确合并多行条目
                     items = get_list_items(block)
                     if not items:
@@ -697,17 +801,15 @@ class MinerUParser:
                     if code_caption:
                         parts.append(code_caption)
                     parts.append(f"```{lang}\n{code_body}\n```")
-                    chunks.append(
+                    append_chunk(
+                        "\n".join(parts),
+                        "code",
                         {
-                            "content": "\n".join(parts),
-                            "type": "code",
-                            "metadata": {
-                                "heading": heading_prefix,
-                                "page_idx": current_page_idx,
-                                "sub_type": sub_type,
-                                "caption": code_caption,
-                            },
-                        }
+                            "heading": heading_prefix,
+                            "page_idx": current_page_idx,
+                            "sub_type": sub_type,
+                            "caption": code_caption,
+                        },
                     )
 
                 # -------- plain text -------- #
