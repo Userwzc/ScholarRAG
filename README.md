@@ -1,140 +1,85 @@
 # ScholarRAG
 
-A multimodal RAG (Retrieval-Augmented Generation) system for academic papers. Upload PDF papers, ask questions, and get AI-powered answers with citations.
+ScholarRAG is a cutting-edge **Multimodal RAG (Retrieval-Augmented Generation)** system designed specifically for academic research. It enables users to upload PDF papers and interact with them through an intelligent agent that understands not just text, but also **complex tables, figures, and mathematical formulas**.
 
-## Features
+## ✨ Key Features
 
-### Current Features
+### 🧠 Advanced Agentic Intelligence
+- **Powered by LangGraph**: A robust state-machine based agent that autonomously plans research steps, executes tool calls, and synthesizes findings.
+- **Multimodal Reasoning**: The agent can "see" and analyze visual evidence (figures/tables) retrieved from papers to provide more comprehensive answers.
+- **Dynamic Tooling**: Includes semantic search, targeted visual retrieval, and page-level context expansion.
 
-- **PDF Ingestion**: Parse academic papers using MinerU with support for text, images, tables, and equations
-- **Multimodal Embedding**: Generate embeddings using Qwen3-VL for text and images
-- **Vector Storage**: Store embeddings in Qdrant for efficient similarity search
-- **RAG Agent**: LangGraph-based agent with multiple search tools:
-  - Semantic paper search
-  - Visual search (images/figures)
-  - Page context lookup
-- **Dual Interfaces**:
-  - CLI interface (`main.py`)
-  - Web UI (FastAPI + React)
-- **Theme Support**: Light/dark theme for web interface
+### 📄 Intelligent PDF Ingestion
+- **MinerU Integration**: High-fidelity parsing of academic PDFs into clean Markdown, extracting text, images, and cross-referencing equations.
+- **Unified Service Layer**: Centralized ingestion pipeline ensures consistent processing across CLI and Web interfaces.
 
-### Web Interface Screens
+### 🚀 Performance & Optimization
+- **VRAM Optimized**: Smart model loading using `bfloat16`/`float16` precision, reducing GPU memory footprint by nearly **50%** (from 19GB to ~10GB).
+- **Repository Pattern**: Clean data access layer isolating business logic from the underlying Qdrant vector database.
 
-- **Query Page**: Ask questions with streaming answers and source citations
-- **Papers Library**: Upload and manage your paper collection
-- **Paper Detail**: View chunks and search within papers
+### 💻 Modern Web Experience
+- **Immersive Chat**: A full-page, fixed-bottom chat interface designed for deep focus sessions.
+- **Collapsible Thought Process**: Watch the agent's research steps in real-time through an elegant, interactive UI component.
+- **LaTeX Support**: Native rendering of mathematical formulas using KaTeX.
+- **Rich Citations**: Instant links to source papers and specific page numbers for every claim.
 
-## Quick Start
+---
 
-### Prerequisites
-
-- Python 3.12+
-- Conda (recommended) or virtualenv
-- Qdrant (local or remote)
-- CUDA-capable GPU (recommended for embedding)
-
-### Installation
-
-```bash
-# Clone and setup environment
-conda create -n scholarrag python=3.12
-conda activate scholarrag
-pip install -r requirements.txt
-
-# Setup environment variables
-cp .env.example .env
-# Edit .env with your API keys and configuration
-```
-
-### Running the Application
-
-#### Option 1: CLI
-
-```bash
-# Add a paper
-python main.py add path/to/paper.pdf
-
-# Query
-python main.py query "What is the main contribution of this paper?"
-
-# Delete
-python main.py delete paper_name
-```
-
-#### Option 2: Web Interface
-
-Start the backend (Terminal 1):
-```bash
-conda activate scholarrag
-uvicorn api.main:app --reload --port 8000
-```
-
-Start the frontend (Terminal 2):
-```bash
-cd frontend
-npm run dev
-```
-
-Then open http://localhost:5173 in your browser.
-
-## Architecture
+## 🛠️ Architecture
 
 ```
 ScholarRAG/
-├── main.py              # CLI entry point
-├── api/                 # FastAPI backend
-│   ├── main.py         # App setup, CORS, routes
-│   ├── schemas.py      # Pydantic models
-│   ├── services/       # Business logic
-│   └── routes/        # API endpoints
-├── frontend/           # React web UI
-│   ├── src/
-│   │   ├── pages/     # Page components
-│   │   ├── components/# UI components
-│   │   └── lib/       # API client
+├── main.py              # Unified CLI entry point
+├── api/                 # FastAPI Backend
+│   ├── services/       # Decoupled business logic (Paper/Query services)
+│   └── routes/        # RESTful API endpoints
+├── frontend/           # Modern React + TypeScript SPA
+│   ├── src/components/ # Reusable UI (ThoughtProcess, etc.)
+│   └── src/pages/     # Immersive View components
 ├── src/
-│   ├── agent/         # LangGraph agent
-│   ├── custom/        # Qwen3-VL embedding/reranking
-│   ├── ingest/        # MinerU parser, paper manager
-│   ├── rag/           # Vector store, embedding
-│   └── utils/         # Logging
-└── config/            # Settings
+│   ├── core/          # Shared Business Logic (Ingestion Service)
+│   ├── agent/         # LangGraph state machine and tools
+│   ├── custom/        # Qwen3-VL specific model wrappers
+│   ├── rag/           # Vector Store (Qdrant) and Repository logic
+│   └── ingest/        # MinerU-based PDF parsing engine
+└── config/            # Centralized Pydantic-based configuration
 ```
 
-## Configuration
+---
 
-Key environment variables:
+## 🚦 Quick Start
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | LLM API key | Required |
-| `OPENAI_API_BASE` | LLM API base URL | Required |
-| `QDRANT_HOST` | Qdrant host | localhost |
-| `QDRANT_PORT` | Qdrant port | 6333 |
-| `LLM_MODEL` | LLM model name | - |
-| `EMBEDDING_MODEL` | Embedding model path | - |
-| `MINERU_BACKEND` | MinerU backend | auto |
+### Prerequisites
+- Python 3.12+
+- Qdrant (Running locally or in cloud)
+- NVIDIA GPU (RTX 2080 Ti or higher recommended)
 
-## Tech Stack
+### Setup
+1. **Clone & Install**
+   ```bash
+   conda create -n scholarrag python=3.12
+   conda activate scholarrag
+   pip install -r requirements.txt
+   ```
+2. **Configure**
+   ```bash
+   cp .env.example .env
+   # Set your OPENAI_API_KEY and model paths in .env
+   ```
 
-- **Backend**: FastAPI, LangChain/LangGraph, Qdrant
-- **ML**: Transformers, PyTorch, Qwen3-VL
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
-- **PDF Processing**: MinerU
+### Execution
+- **Run CLI**: `python main.py query "What is the core methodology of the DREAM paper?"`
+- **Run Backend**: `uvicorn api.main:app --host 0.0.0.0 --port 8000`
+- **Run Frontend**: `cd frontend && npm run dev`
 
-## Future Enhancements
+---
 
-- [ ] **User Authentication**: Add user login and personal paper collections
-- [ ] **Paper Collections**: Organize papers into folders/collections
-- [ ] **Search History**: Save and revisit past queries
-- [ ] **Citation Export**: Export answers with formatted citations (BibTeX, APA, etc.)
-- [ ] **PDF Viewer**: Inline PDF preview with highlighted references
-- [ ] **Multi-language Support**: Support for papers in other languages
-- [ ] **Mobile Responsive**: Better mobile UI experience
-- [ ] **Paper Recommendations**: Suggest related papers based on queries
-- [ ] **Annotation Tools**: Highlight and annotate paper sections
-- [ ] **API Authentication**: API key management for external integrations
+## 🧪 Tech Stack
+- **AI/ML**: [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain](https://github.com/langchain-ai/langchain), [Qwen3-VL](https://github.com/QwenLM/Qwen-VL), Transformers, PyTorch.
+- **Database**: [Qdrant](https://qdrant.tech/) (Vector Database).
+- **Backend**: FastAPI, Pydantic v2.
+- **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, KaTeX.
+- **Parsing**: [MinerU](https://github.com/opendatalab/MinerU).
 
-## License
-
-MIT License
+## 📄 License
+MIT License.
