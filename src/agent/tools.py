@@ -1,5 +1,5 @@
-import hashlib
 import json
+import hashlib
 import os
 from typing import Any
 
@@ -116,11 +116,8 @@ def _results_json(
     query: str,
     source_tool: str,
     results: list[dict[str, Any]],
-) -> str:
-    return json.dumps(
-        {"query": query, "tool": source_tool, "results": results},
-        ensure_ascii=False,
-    )
+) -> dict[str, Any]:
+    return {"query": query, "tool": source_tool, "results": results}
 
 
 class SearchPapersInput(BaseModel):
@@ -352,7 +349,7 @@ def search_papers(
     title_contains: str = "",
     figure_or_table_label: str = "",
     top_k: int = config.RAG_TOP_K,
-) -> str:
+) -> dict:
     """Search paper chunks broadly across text, figures, and tables.
 
     Use this tool first for most questions about paper content, contributions,

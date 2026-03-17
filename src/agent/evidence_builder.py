@@ -25,21 +25,19 @@ def _coerce_text(content: Any) -> str:
     return str(content)
 
 
-def _parse_tool_payload(content: Any) -> list[dict[str, Any]]:
-    if not isinstance(content, str):
-        return []
-
-    try:
-        payload = json.loads(content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return []
+def _parse_tool_payload(message: ToolMessage) -> list[dict[str, Any]]:
+    payload = getattr(message, "artifact", None)
+    
+    if payload is None and isinstance(message.content, dict):
+        payload = message.content
 
     if not isinstance(payload, dict):
         return []
 
-    results = payload.get("results", [])
+    results = payload.get("results")
     if not isinstance(results, list):
         return []
+
     return [item for item in results if isinstance(item, dict)]
 
 
@@ -51,7 +49,7 @@ def collect_evidence(messages: list[BaseMessage]) -> list[dict[str, Any]]:
         if not isinstance(message, ToolMessage):
             continue
 
-        for item in _parse_tool_payload(message.content):
+        for item in _parse_tool_payload(message):
             evidence_id = str(item.get("evidence_id", ""))
             if evidence_id and evidence_id in seen_ids:
                 continue

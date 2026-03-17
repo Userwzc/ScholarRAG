@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -31,11 +31,15 @@ class PaperVectorStore:
         self,
         collection_name: str = "papers_rag",
     ):
+        import torch
         self.client = QdrantClient(
             url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}"
         )
         self.collection_name = collection_name
-        self.embeddings = Qwen3VLEmbeddings(model_name_or_path=config.EMBEDDING_MODEL)
+        self.embeddings = Qwen3VLEmbeddings(
+            model_name_or_path=config.EMBEDDING_MODEL,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        )
         self._ensure_collection()
 
         self._reranker: RerankerStrategy = NoOpReranker()
@@ -44,10 +48,14 @@ class PaperVectorStore:
 
     def _load_reranker(self, model_path: str) -> None:
         """Lazily load the Qwen3VLReranker. Logs a warning on failure."""
+        import torch
         try:
             from src.custom.qwen3_vl_reranker import Qwen3VLReranker
 
-            self._reranker = Qwen3VLReranker(model_name_or_path=model_path)
+            self._reranker = Qwen3VLReranker(
+                model_name_or_path=model_path,
+                torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            )
             logger.info("Reranker loaded from %s", model_path)
         except Exception as exc:
             logger.warning(
@@ -420,6 +428,44 @@ class PaperVectorStore:
             with_vectors=False,
         )
         return [{"payload": point.payload} for point in points]
+
+    def get_all_papers(self) -> List[Dict[str, Any]]:
+        """Returns metadata for all chunks to extract unique papers."""
+        points, _ = self.client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=None,
+            limit=10000,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [{"payload": point.payload} for point in points]
+
+    def count_chunks(self, filter_metadata: Dict[str, Any]) -> int:
+        """Count the number of chunks matching the given filter."""
+        filter_params = self._build_filter(filter_metadata)
+        return self.client.count(
+            collection_name=self.collection_name,
+            count_filter=filter_params,
+            exact=True,
+        ).count
+
+    def scroll_chunks(
+        self,
+        filter_metadata: Dict[str, Any],
+        limit: int = 10000,
+        offset: Optional[Any] = None,
+    ) -> Tuple[List[Dict[str, Any]], Optional[Any]]:
+        """Scroll through chunks matching a filter."""
+        filter_params = self._build_filter(filter_metadata)
+        points, next_page_offset = self.client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=filter_params,
+            limit=limit,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [{"id": point.id, "payload": point.payload} for point in points], next_page_offset
 
     def delete_paper(self, pdf_name: str) -> bool:
         """Delete all chunks associated with a specific paper by pdf_name.
