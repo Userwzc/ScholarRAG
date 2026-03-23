@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { fetchPaper, fetchChunks, deletePaper } from "../lib/api"
+import { cn } from "../lib/utils"
 
 export default function PaperDetailPage() {
   const { pdfName } = useParams<{ pdfName: string }>()
@@ -37,8 +38,11 @@ export default function PaperDetailPage() {
 
   if (paperLoading) {
     return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex justify-center py-16">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading paper...</p>
+        </div>
       </div>
     )
   }
@@ -46,7 +50,10 @@ export default function PaperDetailPage() {
   if (!paper) {
     return (
       <div className="container mx-auto max-w-4xl px-4 py-8">
-        <p>Paper not found</p>
+        <div className="text-center py-16">
+          <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+          <p className="text-muted-foreground">Paper not found</p>
+        </div>
       </div>
     )
   }
@@ -59,41 +66,48 @@ export default function PaperDetailPage() {
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8">
-      <Button variant="ghost" asChild className="mb-4">
+      <Button variant="ghost" asChild className="mb-6 rounded-xl">
         <Link to="/papers">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Papers
         </Link>
       </Button>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-2xl">{paper.title}</CardTitle>
+      <Card className="mb-8 overflow-hidden">
+        <div className="h-2 gradient-primary" />
+        <CardHeader className="pb-4">
+          <CardTitle className="text-2xl leading-snug">{paper.title}</CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground mb-2">{paper.authors || "Unknown authors"}</p>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground leading-relaxed">{paper.authors || "Unknown authors"}</p>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>File: {paper.pdf_name}.pdf</span>
-            <span>Chunks: {paper.chunk_count}</span>
+            <span className="flex items-center gap-1.5 bg-secondary/50 px-3 py-1 rounded-lg">
+              <FileText className="h-3.5 w-3.5" />
+              {paper.pdf_name}.pdf
+            </span>
+            <span className="flex items-center gap-1.5 bg-secondary/50 px-3 py-1 rounded-lg">
+              <BookOpen className="h-3.5 w-3.5" />
+              {paper.chunk_count} chunks
+            </span>
           </div>
-          <div className="flex gap-2 mt-4">
+          <div className="flex gap-3 pt-2">
             <Button
-              variant="default"
-              size="sm"
+              size="default"
               onClick={() => navigate(`/papers/${pdfName}/read`)}
             >
               <BookOpen className="h-4 w-4 mr-2" />
               Read Paper
             </Button>
             <Button
-              variant="destructive"
-              size="sm"
+              variant="outline"
+              size="default"
               onClick={() => {
                 if (confirm(`Delete "${paper.title}"?`)) {
                   deleteMutation.mutate()
                 }
               }}
               disabled={deleteMutation.isPending}
+              className="text-destructive hover:bg-destructive/10 hover:border-destructive/30"
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Delete Paper
@@ -102,7 +116,7 @@ export default function PaperDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="flex gap-4 mb-4">
+      <div className="flex gap-4 mb-6">
         <Input
           placeholder="Search chunks..."
           value={searchQuery}
@@ -110,7 +124,7 @@ export default function PaperDetailPage() {
           className="flex-1"
         />
         <select
-          className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="flex h-10 rounded-xl border-2 border-border/50 bg-card/50 backdrop-blur-sm px-4 py-2 text-sm hover:border-primary/30 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
         >
@@ -123,51 +137,61 @@ export default function PaperDetailPage() {
 
       {chunksLoading ? (
         <div className="flex justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : (
         <>
           <div className="space-y-4">
             {filteredChunks.map((chunk, idx) => (
-              <Card key={chunk.id || idx}>
+              <Card key={chunk.id || idx} className="card-hover">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      {chunk.chunk_type === "image" ? (
-                        <Image className="h-4 w-4" />
-                      ) : chunk.chunk_type === "table" ? (
-                        <Table className="h-4 w-4" />
-                      ) : (
-                        <FileText className="h-4 w-4" />
-                      )}
+                      <div className={cn(
+                        "flex items-center justify-center h-7 w-7 rounded-lg",
+                        chunk.chunk_type === "image" ? "bg-purple-500/10 text-purple-600" :
+                        chunk.chunk_type === "table" ? "bg-emerald-500/10 text-emerald-600" :
+                        "bg-primary/10 text-primary"
+                      )}>
+                        {chunk.chunk_type === "image" ? (
+                          <Image className="h-4 w-4" />
+                        ) : chunk.chunk_type === "table" ? (
+                          <Table className="h-4 w-4" />
+                        ) : (
+                          <FileText className="h-4 w-4" />
+                        )}
+                      </div>
                       <span className="text-sm font-medium capitalize">{chunk.chunk_type}</span>
                       {chunk.page_idx !== undefined && (
-                        <span className="text-sm text-muted-foreground">Page {chunk.page_idx}</span>
+                        <span className="text-sm text-muted-foreground bg-secondary/50 px-2 py-0.5 rounded-md">
+                          Page {chunk.page_idx}
+                        </span>
                       )}
                     </div>
                     {chunk.heading && (
-                      <span className="text-sm text-muted-foreground">{chunk.heading}</span>
+                      <span className="text-sm text-muted-foreground truncate max-w-[200px]">{chunk.heading}</span>
                     )}
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm whitespace-pre-wrap">{chunk.content}</p>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{chunk.content}</p>
                 </CardContent>
               </Card>
             ))}
           </div>
 
           {totalPages > 1 && (
-            <div className="flex justify-center gap-2 mt-6">
+            <div className="flex justify-center gap-3 mt-8">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
+                className="rounded-xl"
               >
                 Previous
               </Button>
-              <span className="flex items-center px-4 text-sm">
+              <span className="flex items-center px-4 text-sm text-muted-foreground bg-secondary/30 rounded-xl">
                 Page {page} of {totalPages}
               </span>
               <Button
@@ -175,6 +199,7 @@ export default function PaperDetailPage() {
                 size="sm"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
+                className="rounded-xl"
               >
                 Next
               </Button>

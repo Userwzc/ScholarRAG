@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, Loader2, Menu, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { ArrowLeft, Loader2, Menu } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { PDFViewer } from "../components/reader/PDFViewer"
 import { TocSidebar } from "../components/reader/TocSidebar"
@@ -15,7 +15,6 @@ export default function PaperReaderPage() {
 
   const [currentPage, setCurrentPage] = useState(0)
   const [tocCollapsed, setTocCollapsed] = useState(false)
-  const [chatCollapsed, setChatCollapsed] = useState(false)
   const [selection, setSelection] = useState<{ text: string; position: { x: number; y: number } } | null>(null)
   const [chatQuestion, setChatQuestion] = useState("")
 
@@ -52,7 +51,6 @@ export default function PaperReaderPage() {
   const handleAskSelection = useCallback(() => {
     if (selection) {
       setChatQuestion(`关于「${selection.text.substring(0, 100)}${selection.text.length > 100 ? "..." : ""}」`)
-      setChatCollapsed(false)
       setSelection(null)
     }
   }, [selection])
@@ -60,7 +58,10 @@ export default function PaperReaderPage() {
   if (paperLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading paper...</p>
+        </div>
       </div>
     )
   }
@@ -75,10 +76,9 @@ export default function PaperReaderPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/papers")}>
+    <div className="flex flex-col h-screen">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 glass">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/papers")} className="rounded-xl">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back
         </Button>
@@ -86,17 +86,16 @@ export default function PaperReaderPage() {
           <h1 className="font-medium text-sm truncate">{paper.title}</h1>
           <p className="text-xs text-muted-foreground truncate">{paper.authors}</p>
         </div>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => setTocCollapsed(!tocCollapsed)}>
-            <Menu className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setChatCollapsed(!chatCollapsed)}>
-            {chatCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setTocCollapsed(!tocCollapsed)}
+          className="rounded-xl"
+        >
+          <Menu className="h-4 w-4" />
+        </Button>
       </div>
 
-      {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         <TocSidebar
           items={toc?.items || []}
@@ -105,7 +104,7 @@ export default function PaperReaderPage() {
           collapsed={tocCollapsed}
         />
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden bg-secondary/10">
           <PDFViewer
             pdfUrl={getPdfUrl(pdfName!)}
             initialPage={currentPage}
@@ -114,17 +113,14 @@ export default function PaperReaderPage() {
             onTextSelect={handleTextSelect}
           />
         </div>
-
-        <ChatPanel
-          pdfName={pdfName!}
-          collapsed={chatCollapsed}
-          onToggle={() => setChatCollapsed(!chatCollapsed)}
-          input={chatQuestion}
-          onInputChange={setChatQuestion}
-        />
       </div>
 
-      {/* Selection toolbar */}
+      <ChatPanel
+        pdfName={pdfName!}
+        input={chatQuestion}
+        onInputChange={setChatQuestion}
+      />
+
       {selection && (
         <SelectionToolbar
           selectedText={selection.text}

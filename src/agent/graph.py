@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, List, Set, Optional
+from typing import Any
 
 import json
 import mimetypes
 from pathlib import Path
 
 from collections.abc import Iterator
-from typing import Any
 
 from langchain_core.messages import (
     AIMessage,
@@ -80,7 +79,15 @@ def call_model(messages: list[BaseMessage]) -> AIMessage:
 
 
 def stream_final_answer(messages: list[BaseMessage]) -> Iterator[str]:
-    """Stream the final answer from the main model without tool calls."""
+    """
+    流式输出最终答案。
+
+    Args:
+        messages: 消息列表（包含历史和当前对话）
+
+    Yields:
+        答案的每个 token
+    """
     prompt_messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
         *messages,
@@ -118,7 +125,9 @@ def execute_tool_calls(ai_message: AIMessage) -> list[ToolMessage]:
                 artifact = None
 
         tool_messages.append(
-            ToolMessage(content=content, tool_call_id=tool_call_id, name=name, artifact=artifact)
+            ToolMessage(
+                content=content, tool_call_id=tool_call_id, name=name, artifact=artifact
+            )
         )
 
     return tool_messages
@@ -231,7 +240,7 @@ def _summarize_tool_payload(message: Any) -> dict[str, Any]:
         "chunk_types": {},
         "pdf_names": [],
     }
-    
+
     payload = getattr(message, "artifact", None)
     if payload is None:
         content = getattr(message, "content", message)
@@ -298,35 +307,52 @@ def _tool_observation_text(kind: str, summary: dict[str, Any]) -> str:
     return f"Tool returned {count} item(s)"
 
 
+from src.agent.langgraph_agent import agent_app  # noqa: E402
 
-from src.agent.langgraph_agent import agent_app
 
 def run_agent_loop_events(
     question: str,
+    history: list[BaseMessage] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Run an autonomous tool-using agent loop and yield structured events, now powered by LangGraph."""
+    """
+    执行 Agent 循环并生成结构化事件。
+
+    Args:
+        question: 用户问题
+        history: 历史消息列表，用于多轮对话上下文
+
+    Yields:
+        结构化事件字典
+    """
+    # 构建消息列表：历史消息 + 当前问题
+    messages = list(history) if history else []
+    messages.append(HumanMessage(content=question))
+
     current_state = {
-        "messages": [HumanMessage(content=question)],
+        "messages": messages,
         "question": question,
         "attached_visuals": set(),
-        "iteration_count": 0
+        "iteration_count": 0,
     }
 
     last_step = 0
     processed_msg_ids = set()
-    
+
     # We iterate over the stream_mode="values" to catch each state update
     for event in agent_app.stream(current_state, stream_mode="values"):
         messages = event.get("messages", [])
         if len(messages) <= 1:
             continue
-            
+
         last_message = messages[-1]
         step = event.get("iteration_count", 0)
-        
+
         # When an AIMessage is produced
         if isinstance(last_message, AIMessage):
-            msg_id = getattr(last_message, "id", None) or f"ai_{hash(last_message.content)}_{step}"
+            msg_id = (
+                getattr(last_message, "id", None)
+                or f"ai_{hash(last_message.content)}_{step}"
+            )
             if msg_id not in processed_msg_ids:
                 processed_msg_ids.add(msg_id)
                 # If step incremented, it's a new reasoning phase
@@ -338,7 +364,7 @@ def run_agent_loop_events(
                         "text": "Inspecting the question and deciding the next tool call",
                     }
                     last_step = step
-                
+
                 # If the AIMessage contains tool calls, we yield them
                 if last_message.tool_calls:
                     for tool_call in last_message.tool_calls:
@@ -349,9 +375,11 @@ def run_agent_loop_events(
                             "args": tool_call.get("args", {}),
                             "step": step,
                         }
-        
+
         # When ToolMessages are produced, we are after the tools node
-        elif isinstance(last_message, ToolMessage) or (isinstance(last_message, HumanMessage) and len(messages) > 2):
+        elif isinstance(last_message, ToolMessage) or (
+            isinstance(last_message, HumanMessage) and len(messages) > 2
+        ):
             tool_msgs = []
             vis_msg = None
             for msg in reversed(messages):
@@ -361,16 +389,19 @@ def run_agent_loop_events(
                     tool_msgs.append(msg)
                 elif isinstance(msg, HumanMessage):
                     vis_msg = msg
-            
+
             tool_msgs.reverse()
-            
+
             for tool_message in tool_msgs:
-                msg_id = getattr(tool_message, "id", None) or f"tool_{tool_message.tool_call_id}"
+                msg_id = (
+                    getattr(tool_message, "id", None)
+                    or f"tool_{tool_message.tool_call_id}"
+                )
                 if msg_id not in processed_msg_ids:
                     processed_msg_ids.add(msg_id)
                     summary = _summarize_tool_payload(tool_message)
                     kind = _tool_event_kind(tool_message.name or "tool")
-                    
+
                     yield {
                         "type": "tool_result",
                         "kind": kind,
@@ -387,26 +418,31 @@ def run_agent_loop_events(
                         "step": step,
                         "text": _tool_observation_text(kind, summary),
                     }
-                
+
             if vis_msg is not None:
-                msg_id = getattr(vis_msg, "id", None) or f"vis_{hash(str(vis_msg.content))}_{step}"
+                msg_id = (
+                    getattr(vis_msg, "id", None)
+                    or f"vis_{hash(str(vis_msg.content))}_{step}"
+                )
                 if msg_id not in processed_msg_ids:
                     processed_msg_ids.add(msg_id)
                     # Calculate visuals from the content block
-                    content_blocks = vis_msg.content if isinstance(vis_msg.content, list) else []
+                    content_blocks = (
+                        vis_msg.content if isinstance(vis_msg.content, list) else []
+                    )
                     img_count = (len(content_blocks) - 1) // 2 if content_blocks else 0
                     yield {
                         "type": "agent_visual_context",
                         "step": step,
                         "count": img_count,
-                        "pages": summary.get("pages", []), # use the last tool's pages
+                        "pages": summary.get("pages", []),  # use the last tool's pages
                     }
 
     # Stream final answer after the graph reaches END
     # The stream already finishes and gives us the final state in the last `event`
     final_messages = event.get("messages", [])
     final_step = event.get("iteration_count", 0)
-    
+
     if final_step >= config.AGENT_MAX_ITERATIONS:
         yield {
             "type": "agent_status",
@@ -421,16 +457,25 @@ def run_agent_loop_events(
             "step": final_step,
             "text": "Tool use complete; streaming final answer",
         }
-        
+
     yield {"type": "answer_started"}
     for token in stream_final_answer(final_messages):
         yield {"type": "answer_token", "text": token}
     yield {"type": "answer_done"}
 
 
-
 def stream_answer_events(
     question: str,
+    history: list[BaseMessage] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Run the autonomous agent loop and stream events directly."""
-    yield from run_agent_loop_events(question)
+    """
+    执行 Agent 并流式返回事件。
+
+    Args:
+        question: 用户问题
+        history: 历史消息列表
+
+    Yields:
+        结构化事件字典
+    """
+    yield from run_agent_loop_events(question, history)

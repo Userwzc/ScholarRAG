@@ -1,11 +1,37 @@
 import json
-from typing import Generator
+from collections.abc import Generator
+
+from langchain_core.messages import AIMessage, HumanMessage
+
+from api.schemas import MessageHistory
 
 
-def stream_query(question: str) -> Generator[str, None, None]:
+def stream_query(
+    question: str,
+    history: list[MessageHistory] | None = None,
+) -> Generator[str, None, None]:
+    """
+    执行查询并流式返回 SSE 事件。
+
+    Args:
+        question: 用户问题
+        history: 历史消息列表，用于多轮对话上下文
+
+    Yields:
+        SSE 格式的事件字符串
+    """
     from src.agent.graph import stream_answer_events
 
-    for event in stream_answer_events(question):
+    # 将历史消息转换为 LangChain 消息格式
+    langchain_history = []
+    if history:
+        for msg in history:
+            if msg.role == "user":
+                langchain_history.append(HumanMessage(content=msg.content))
+            elif msg.role == "assistant":
+                langchain_history.append(AIMessage(content=msg.content))
+
+    for event in stream_answer_events(question, langchain_history):
         event_type = event.get("type", "")
 
         if event_type == "agent_status":

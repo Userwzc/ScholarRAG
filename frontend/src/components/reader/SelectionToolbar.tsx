@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { MessageSquare, Copy, Check } from "lucide-react"
+import { Copy, Check, Sparkles } from "lucide-react"
 import { Button } from "../ui/button"
 
 interface SelectionToolbarProps {
@@ -31,16 +31,35 @@ export function SelectionToolbar({ selectedText, position, onAsk, onClose }: Sel
 
   return (
     <div
-      className="selection-toolbar fixed z-50 flex gap-1 bg-background border shadow-lg rounded-lg p-1 animate-in fade-in zoom-in-95 duration-150"
-      style={{ left: position.x, top: position.y - 50 }}
+      className="selection-toolbar fixed z-50 flex gap-1.5 bg-card/95 backdrop-blur-xl border border-border/40 shadow-xl rounded-2xl p-1.5 animate-in fade-in zoom-in-95 duration-200"
+      style={{ left: position.x, top: position.y - 55 }}
     >
-      <Button variant="ghost" size="sm" onClick={onAsk} className="gap-1">
-        <MessageSquare className="h-3 w-3" />
+      <Button
+        variant="default"
+        size="sm"
+        onClick={onAsk}
+        className="gap-2 rounded-xl h-8 px-3"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
         Ask AI
       </Button>
-      <Button variant="ghost" size="sm" onClick={handleCopy} className="gap-1">
-        {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-        {copied ? "Copied" : "Copy"}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleCopy}
+        className="gap-2 rounded-xl h-8 px-3"
+      >
+        {copied ? (
+          <>
+            <Check className="h-3.5 w-3.5 text-emerald-600" />
+            <span className="text-emerald-600">Copied</span>
+          </>
+        ) : (
+          <>
+            <Copy className="h-3.5 w-3.5" />
+            Copy
+          </>
+        )}
       </Button>
     </div>
   )

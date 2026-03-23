@@ -1,9 +1,17 @@
 from typing import Any, Optional
+
 from pydantic import BaseModel
+
+
+class MessageHistory(BaseModel):
+    role: str
+    content: str
 
 
 class QueryRequest(BaseModel):
     question: str
+    conversation_id: Optional[str] = None
+    history: list[MessageHistory] = []
 
 
 class QueryResponse(BaseModel):
@@ -102,3 +110,64 @@ class SSEStatus(BaseModel):
     phase: str
     step: int
     text: str
+
+
+class AgentStepSchema(BaseModel):
+    type: str
+    tool: Optional[str] = None
+    text: Optional[str] = None
+    count: Optional[int] = None
+    pages: Optional[list[str]] = None
+
+
+class SourceSchema(BaseModel):
+    pdf_name: str
+    page: int
+    type: str
+
+
+class MessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    steps: Optional[list[AgentStepSchema]] = None
+    sources: Optional[list[SourceSchema]] = None
+    created_at: int
+
+
+class ConversationCreate(BaseModel):
+    id: str
+    title: str = "New Chat"
+
+
+class ConversationUpdate(BaseModel):
+    title: str
+
+
+class ConversationListItem(BaseModel):
+    id: str
+    title: str
+    created_at: int
+    updated_at: int
+    message_count: int
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationListItem]
+
+
+class ConversationDetail(BaseModel):
+    id: str
+    title: str
+    created_at: int
+    updated_at: int
+    messages: list[MessageResponse]
+
+
+class MessageCreate(BaseModel):
+    id: str
+    role: str
+    content: str
+    steps: Optional[list[AgentStepSchema]] = None
+    sources: Optional[list[SourceSchema]] = None
+    created_at: int
