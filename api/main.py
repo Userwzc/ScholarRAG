@@ -1,16 +1,15 @@
 import os
-import sys
 import warnings
 
 os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 warnings.filterwarnings("ignore", message="Class .* is implemented in both")
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from api import config
-from api.routes import papers, query
-from api.schemas import HealthResponse
+from api import config  # noqa: E402
+from api.routes import papers, query  # noqa: E402
+from api.schemas import HealthResponse  # noqa: E402
 
 app = FastAPI(
     title="ScholarRAG API",

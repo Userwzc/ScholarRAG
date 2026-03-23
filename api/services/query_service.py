@@ -1,5 +1,5 @@
 import json
-from typing import Any, Generator, Iterator
+from typing import Generator
 
 
 def stream_query(question: str) -> Generator[str, None, None]:

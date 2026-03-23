@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Trash2, Loader2, FileText, Image, Table } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, FileText, Image, Table, BookOpen } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -76,20 +76,29 @@ export default function PaperDetailPage() {
             <span>File: {paper.pdf_name}.pdf</span>
             <span>Chunks: {paper.chunk_count}</span>
           </div>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="mt-4"
-            onClick={() => {
-              if (confirm(`Delete "${paper.title}"?`)) {
-                deleteMutation.mutate()
-              }
-            }}
-            disabled={deleteMutation.isPending}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete Paper
-          </Button>
+          <div className="flex gap-2 mt-4">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => navigate(`/papers/${pdfName}/read`)}
+            >
+              <BookOpen className="h-4 w-4 mr-2" />
+              Read Paper
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (confirm(`Delete "${paper.title}"?`)) {
+                  deleteMutation.mutate()
+                }
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Paper
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

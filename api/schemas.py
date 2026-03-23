@@ -64,6 +64,23 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class TOCItem(BaseModel):
+    """Table of contents item for PDF reader."""
+
+    id: str
+    level: int
+    text: str
+    page_idx: int
+    chunk_type: str  # "section" | "image" | "table"
+
+
+class TOCResponse(BaseModel):
+    """Table of contents response for a paper."""
+
+    items: list[TOCItem]
+    total_pages: int
+
+
 class SSEToken(BaseModel):
     text: str
 

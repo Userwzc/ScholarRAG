@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from api.schemas import QueryRequest, QueryResponse
+from api.schemas import QueryRequest
 from api.services import query_service
 
 router = APIRouter()

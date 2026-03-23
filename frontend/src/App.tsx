@@ -6,6 +6,7 @@ import { useThemeStore } from "./stores/theme-store"
 import QueryPage from "./pages/QueryPage"
 import PapersPage from "./pages/PapersPage"
 import PaperDetailPage from "./pages/PaperDetailPage"
+import PaperReaderPage from "./pages/PaperReaderPage"
 
 const queryClient = new QueryClient()
 
@@ -27,6 +28,7 @@ function App() {
               <Route path="/" element={<QueryPage />} />
               <Route path="/papers" element={<PapersPage />} />
               <Route path="/papers/:pdfName" element={<PaperDetailPage />} />
+              <Route path="/papers/:pdfName/read" element={<PaperReaderPage />} />
             </Routes>
           </main>
         </div>

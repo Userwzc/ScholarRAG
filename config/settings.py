@@ -57,5 +57,8 @@ class Config:
     # MinerU backend selection: pipeline | hybrid-auto-engine
     MINERU_BACKEND: str = os.getenv("MINERU_BACKEND", "pipeline")
 
+    # PDF storage directory for reader functionality
+    PDF_STORAGE_DIR: str = os.getenv("PDF_STORAGE_DIR", "./data/pdfs")
+
 
 config = Config()
