@@ -60,5 +60,10 @@ class Config:
     # PDF storage directory for reader functionality
     PDF_STORAGE_DIR: str = os.getenv("PDF_STORAGE_DIR", "./data/pdfs")
 
+    # Hybrid retrieval mode (dense + sparse vectors)
+    # When enabled, uses both dense embeddings and BM25 sparse embeddings
+    # Requires: pip install fastembed
+    ENABLE_HYBRID: bool = os.getenv("ENABLE_HYBRID", "false").lower() == "true"
+
 
 config = Config()

@@ -43,7 +43,7 @@ ScholarRAG/
 conda activate scholarrag
 ```
 
-`.env` (never commit): `OPENAI_API_BASE`, `OPENAI_API_KEY`, `QDRANT_HOST`, `QDRANT_PORT`, `LLM_MODEL`, `EMBEDDING_MODEL`, `MINERU_MODEL_SOURCE`, `MINERU_BACKEND`, `RERANKER_MODEL`, `RAG_TOP_K`, `SCORE_THRESHOLD`, `AGENT_MAX_ITERATIONS`, `LOG_LEVEL`, `API_HOST`, `API_PORT`, `API_UPLOAD_DIR`
+`.env` (never commit): `OPENAI_API_BASE`, `OPENAI_API_KEY`, `QDRANT_HOST`, `QDRANT_PORT`, `LLM_MODEL`, `EMBEDDING_MODEL`, `MINERU_MODEL_SOURCE`, `MINERU_BACKEND`, `RERANKER_MODEL`, `RAG_TOP_K`, `SCORE_THRESHOLD`, `AGENT_MAX_ITERATIONS`, `LOG_LEVEL`, `API_HOST`, `API_PORT`, `API_UPLOAD_DIR`, `ENABLE_HYBRID`
 
 ## Run Commands
 
@@ -140,13 +140,17 @@ Place tests in `tests/test_<module>.py`.
 
 ## Key Invariants
 
+- **Vector Store**: Uses `MultimodalQdrantStore` which extends `langchain_qdrant.QdrantVectorStore`. Access via `get_vector_store()` function — never import `vector_store` directly (it's `None` by default).
+- **Embedding interface**: `Qwen3VLEmbeddings` implements `langchain_core.embeddings.Embeddings`. Use unified `embed_query(input)` / `embed_documents(inputs)` where `input` can be `str` or `dict` (e.g., `{"text": "...", "image": "..."}`). Supports async via `aembed_query` / `aembed_documents`.
+- **Payload structure**: `{page_content: str, metadata: dict, _multimodal_input: dict}`. Metadata fields accessed via `metadata.key` in filters (e.g., `metadata.pdf_name`).
 - **Idempotent writes**: Point IDs use `uuid.uuid5` from `(pdf_name, page_idx, chunk_type, text_content[, img_path])` — never `uuid.uuid4()`
 - **Image paths**: Probe both `auto/<img_path>` and `auto/images/<img_path>`; store under `"image"` key
-- **CUDA/vLLM conflict**: Import `vector_store` inside `add_paper()`, `agent_app` inside `query_agent()` — never at module level when using `hybrid-auto-engine`
+- **CUDA/vLLM conflict**: Call `get_vector_store()` inside functions after MinerU parsing completes — never at module level when using `hybrid-auto-engine`
 - **Reranking**: Over-fetches `top_k * 3`, reranks, returns `top_k`
 - **Score threshold**: Default `0.3`, applied after retrieval, before reranking
 - **Tool calling**: Always call at least one tool before answering; use `SystemMessage` for system prompts, never `HumanMessage`
 - **Message types**: Use `AIMessage`, `HumanMessage`, `ToolMessage` from `langchain_core.messages`
+- **Filters**: Use `qdrant_client.http.models.Filter` with `FieldCondition` — never custom DSL dicts
 
 ## Things to Avoid
 
@@ -157,5 +161,66 @@ Place tests in `tests/test_<module>.py`.
 - Don't use `HumanMessage` for system prompt — use `SystemMessage`
 - Don't hard-code `top_k=5` — read `config.RAG_TOP_K`
 - Don't switch `stream_mode` to `"values"` in `query_agent()`
-- Don't import `vector_store` at module level in `main.py` (CUDA/vLLM conflict)
+- Don't import `vector_store` at module level — use `get_vector_store()` function
 - Don't use `List`, `Dict` from `typing` — use `list`, `dict` (Python 3.9+)
+- Don't use custom filter DSL dicts — use `qdrant_client.http.models.Filter`
+
+## Vector Store API
+
+The `MultimodalQdrantStore` class extends `langchain_qdrant.QdrantVectorStore` with multimodal support.
+
+### Initialization
+
+```python
+from src.rag.vector_store import get_vector_store
+
+# Get singleton instance (lazy initialization)
+store = get_vector_store()
+```
+
+### Key Methods
+
+| Method | Description |
+|--------|-------------|
+| `add_multimodal(inputs, metadatas)` | Store multimodal inputs (text + image) |
+| `similarity_search_with_rerank(query, k, filter)` | Search with optional reranking |
+| `search_by_image(image_path, instruction)` | Image-based search |
+| `fetch_by_metadata(filter)` | Fetch by metadata without vector search |
+| `scroll_chunks(filter, limit)` | Paginated chunk retrieval |
+| `delete_paper(pdf_name)` | Delete all chunks for a paper |
+
+### Filter Construction
+
+Use `qdrant_client.http.models.Filter` directly:
+
+```python
+from qdrant_client.http import models
+
+# Single condition
+filter = models.Filter(
+    must=[models.FieldCondition(
+        key="metadata.pdf_name",
+        match=models.MatchValue(value="paper_name")
+    )]
+)
+
+# Multiple conditions
+filter = models.Filter(
+    must=[
+        models.FieldCondition(key="metadata.pdf_name", match=models.MatchValue(value="paper")),
+        models.FieldCondition(key="metadata.chunk_type", match=models.MatchAny(any=["text", "table"])),
+    ]
+)
+
+# Range condition
+filter = models.Filter(
+    must=[models.FieldCondition(
+        key="metadata.page_idx",
+        range=models.Range(gte=0, lte=10)
+    )]
+)
+```
+
+### Hybrid Retrieval
+
+Set `ENABLE_HYBRID=true` in `.env` to enable dense + sparse (BM25) retrieval. Requires `fastembed` package.

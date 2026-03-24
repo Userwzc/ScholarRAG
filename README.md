@@ -17,6 +17,17 @@ ScholarRAG is a cutting-edge **Multimodal RAG (Retrieval-Augmented Generation)**
 - **VRAM Optimized**: Smart model loading using `bfloat16`/`float16` precision, reducing GPU memory footprint by nearly **50%** (from 19GB to ~10GB).
 - **Repository Pattern**: Clean data access layer isolating business logic from the underlying Qdrant vector database.
 
+### 🔍 Multimodal Embedding
+- **LangChain-Compatible**: Implements `langchain_core.embeddings.Embeddings` interface for seamless integration.
+- **Hybrid Input**: Supports text, image, and mixed inputs through a unified API.
+- **Async Support**: Built-in async methods (`aembed_query`, `aembed_documents`) for non-blocking operations.
+
+### 🎯 Advanced Retrieval
+- **LangChain QdrantVectorStore**: Built on LangChain's official Qdrant integration with extended multimodal support.
+- **Hybrid Search**: Optional dense + sparse (BM25) retrieval for improved recall.
+- **Reranking**: Qwen3-VL reranker for relevance scoring.
+- **MMR Support**: Maximal Marginal Relevance for diverse result sets.
+
 ### 💻 Modern Web Experience
 - **Immersive Chat**: A full-page, fixed-bottom chat interface designed for deep focus sessions.
 - **Collapsible Thought Process**: Watch the agent's research steps in real-time through an elegant, interactive UI component.
@@ -76,7 +87,7 @@ ScholarRAG/
 
 ## 🧪 Tech Stack
 - **AI/ML**: [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain](https://github.com/langchain-ai/langchain), [Qwen3-VL](https://github.com/QwenLM/Qwen-VL), Transformers, PyTorch.
-- **Database**: [Qdrant](https://qdrant.tech/) (Vector Database).
+- **Database**: [Qdrant](https://qdrant.tech/) (Vector Database) with LangChain integration.
 - **Backend**: FastAPI, Pydantic v2.
 - **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, KaTeX.
 - **Parsing**: [MinerU](https://github.com/opendatalab/MinerU).

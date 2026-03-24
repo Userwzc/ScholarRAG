@@ -1,13 +1,15 @@
-import json
+"""LangGraph Agent tools for paper RAG."""
+
 import hashlib
 import os
 from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
+from qdrant_client.http import models
 
 from config.settings import config
-from src.rag.vector_store import vector_store
+from src.rag.vector_store import get_vector_store
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,87 +42,16 @@ def _evidence_id(
     text: str,
     img_path: str,
 ) -> str:
+    """Generate a short unique ID for an evidence chunk."""
     raw = "\x00".join(
         [pdf_name, str(page_idx), chunk_type, text[:500], img_path]
     ).encode("utf-8")
     return hashlib.sha1(raw).hexdigest()[:16]
 
 
-def _parse_filter_metadata(filter_metadata: str) -> dict[str, Any] | None:
-    metadata_dict: dict[str, Any] | None = None
-    try:
-        parsed = json.loads(filter_metadata)
-        if isinstance(parsed, dict) and parsed:
-            metadata_dict = parsed
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("Could not parse filter_metadata JSON, ignoring filter: %s", exc)
-    return metadata_dict
-
-
-def _payload_to_evidence(
-    payload: dict[str, Any],
-    score: float,
-    source_tool: str,
-) -> dict[str, Any]:
-    mm = payload.get("_multimodal_input")
-    if mm is not None:
-        chunk = mm.get("text", "")
-    else:
-        chunk = payload.get("page_content", "")
-
-    title = payload.get("title", "Unknown Title")
-    pdf_name = payload.get("pdf_name", "")
-    authors = payload.get("authors", "")
-    page_idx = payload.get("page_idx", "")
-    chunk_type = payload.get("chunk_type", "text")
-    heading = payload.get("heading", "")
-    caption = payload.get("caption", "")
-    footnote = payload.get("footnote", "")
-    img_path = payload.get("img_path", "")
-    if mm is not None and not img_path:
-        img_path = mm.get("image", "")
-    img_path = _resolve_img_path(pdf_name, img_path)
-
-    return {
-        "evidence_id": _evidence_id(
-            pdf_name=pdf_name,
-            page_idx=page_idx,
-            chunk_type=chunk_type,
-            text=chunk,
-            img_path=img_path,
-        ),
-        "title": title,
-        "pdf_name": pdf_name,
-        "authors": authors,
-        "page_idx": page_idx,
-        "chunk_type": chunk_type,
-        "heading": heading,
-        "section_path": payload.get("section_path", heading),
-        "section_depth": payload.get("section_depth", 0),
-        "local_label": payload.get("local_label", ""),
-        "score": round(score, 6),
-        "text": chunk,
-        "img_path": img_path,
-        "has_image": payload.get("has_image", bool(img_path)),
-        "has_caption": payload.get("has_caption", bool(caption)),
-        "caption": caption,
-        "footnote": footnote,
-        "figure_or_table_label": payload.get("figure_or_table_label", ""),
-        "chunk_order": payload.get("chunk_order", -1),
-        "page_chunk_order": payload.get("page_chunk_order", -1),
-        "source_tool": source_tool,
-    }
-
-
-def _results_json(
-    query: str,
-    source_tool: str,
-    results: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {"query": query, "tool": source_tool, "results": results}
-
-
 class SearchPapersInput(BaseModel):
+    """Input schema for search_papers tool."""
+
     query: str = Field(
         description="Semantic query for paper content, methodology, findings, or concepts."
     )
@@ -163,6 +94,8 @@ class SearchPapersInput(BaseModel):
 
 
 class SearchVisualsInput(BaseModel):
+    """Input schema for search_visuals tool."""
+
     query: str = Field(
         description="Query for figures, tables, captions, ablations, or experimental results."
     )
@@ -193,6 +126,8 @@ class SearchVisualsInput(BaseModel):
 
 
 class PageContextInput(BaseModel):
+    """Input schema for get_page_context tool."""
+
     pdf_name: str = Field(description="Paper name without .pdf extension.")
     page_idx: int = Field(description="Zero-based page index to inspect.")
     heading: str = Field(
@@ -201,65 +136,89 @@ class PageContextInput(BaseModel):
     )
 
 
-def _merge_exact_filters(
-    filter_metadata: str,
-    pdf_name: str = "",
-    page_idx: int | None = None,
-    chunk_types: list[str] | None = None,
-) -> dict[str, Any] | None:
-    exact_filter = _parse_filter_metadata(filter_metadata) or {}
-    if pdf_name:
-        exact_filter["pdf_name"] = pdf_name
-    if page_idx is not None:
-        exact_filter["page_idx"] = page_idx
-    if chunk_types and len(chunk_types) == 1:
-        exact_filter["chunk_type"] = chunk_types[0]
-    return exact_filter or None
-
-
-def _build_structured_filter(
-    filter_metadata: str,
-    *,
+def _build_qdrant_filter(
     pdf_name: str = "",
     chunk_types: list[str] | None = None,
     page_idx: int | None = None,
     page_start: int | None = None,
     page_end: int | None = None,
-) -> dict[str, Any] | None:
-    """Build richer filter metadata for vector_store._build_filter()."""
-    base = _parse_filter_metadata(filter_metadata)
-    if base and any(key in base for key in ("must", "should", "must_not")):
-        spec = dict(base)
-    else:
-        spec = {"must": []}
-        if base:
-            for key, value in base.items():
-                spec["must"].append({"key": key, "match": value})
+    filter_metadata: str = "{}",
+) -> models.Filter | None:
+    """构建 Qdrant Filter 对象。
 
-    must = spec.setdefault("must", [])
+    Args:
+        pdf_name: 论文名称过滤
+        chunk_types: chunk 类型列表过滤
+        page_idx: 精确页码过滤
+        page_start/page_end: 页码范围过滤
+        filter_metadata: JSON 格式的额外元数据过滤条件
+
+    Returns:
+        models.Filter 对象，无条件时返回 None
+    """
+    import json
+
+    must_conditions: list[models.Condition] = []
+
+    # 解析 filter_metadata JSON 并添加条件
+    if filter_metadata and filter_metadata != "{}":
+        try:
+            extra_filters = json.loads(filter_metadata)
+            for key, value in extra_filters.items():
+                if value is not None and value != "":
+                    must_conditions.append(
+                        models.FieldCondition(
+                            key=f"metadata.{key}",
+                            match=models.MatchValue(value=value),
+                        )
+                    )
+        except json.JSONDecodeError:
+            logger.warning("Invalid filter_metadata JSON: %s", filter_metadata)
+
     if pdf_name:
-        must.append({"key": "pdf_name", "match": pdf_name})
-    if page_idx is not None:
-        must.append({"key": "page_idx", "match": page_idx})
-    elif page_start is not None or page_end is not None:
-        must.append(
-            {
-                "key": "page_idx",
-                "range": {"gte": page_start, "lte": page_end},
-            }
+        must_conditions.append(
+            models.FieldCondition(
+                key="metadata.pdf_name",
+                match=models.MatchValue(value=pdf_name),
+            )
         )
+
+    if page_idx is not None:
+        must_conditions.append(
+            models.FieldCondition(
+                key="metadata.page_idx",
+                match=models.MatchValue(value=page_idx),
+            )
+        )
+    elif page_start is not None or page_end is not None:
+        must_conditions.append(
+            models.FieldCondition(
+                key="metadata.page_idx",
+                range=models.Range(gte=page_start, lte=page_end),
+            )
+        )
+
     if chunk_types:
         if len(chunk_types) == 1:
-            must.append({"key": "chunk_type", "match": chunk_types[0]})
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.chunk_type",
+                    match=models.MatchValue(value=chunk_types[0]),
+                )
+            )
         else:
-            must.append({"key": "chunk_type", "any": chunk_types})
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.chunk_type",
+                    match=models.MatchAny(any=chunk_types),
+                )
+            )
 
-    return (
-        spec if spec.get("must") or spec.get("should") or spec.get("must_not") else None
-    )
+    return models.Filter(must=must_conditions) if must_conditions else None
 
 
 def _contains(haystack: Any, needle: str) -> bool:
+    """Case-insensitive substring check."""
     if not needle:
         return True
     return needle.casefold() in str(haystack or "").casefold()
@@ -268,9 +227,11 @@ def _contains(haystack: Any, needle: str) -> bool:
 def _within_page_range(
     payload: dict[str, Any], page_start: int | None, page_end: int | None
 ) -> bool:
+    """Check if payload's page_idx falls within the specified range."""
     if page_start is None and page_end is None:
         return True
-    page_idx = payload.get("page_idx")
+    meta = payload.get("metadata", {})
+    page_idx = meta.get("page_idx")
     if not isinstance(page_idx, int):
         return False
     if page_start is not None and page_idx < page_start:
@@ -291,26 +252,96 @@ def _matches_filters(
     page_start: int | None = None,
     page_end: int | None = None,
 ) -> bool:
-    if chunk_types and str(payload.get("chunk_type", "")) not in chunk_types:
+    """Check if payload matches all client-side filters."""
+    meta = payload.get("metadata", {})
+    if chunk_types and str(meta.get("chunk_type", "")) not in chunk_types:
         return False
-    heading = payload.get("section_path") or payload.get("heading", "")
+    heading = meta.get("section_path") or meta.get("heading", "")
     if not _contains(heading, heading_contains):
         return False
-    if not _contains(payload.get("authors", ""), authors_contains):
+    if not _contains(meta.get("authors", ""), authors_contains):
         return False
-    if not _contains(payload.get("title", ""), title_contains):
+    if not _contains(meta.get("title", ""), title_contains):
         return False
-    if not _contains(payload.get("figure_or_table_label", ""), figure_or_table_label):
+    if not _contains(meta.get("figure_or_table_label", ""), figure_or_table_label):
         return False
     if not _within_page_range(payload, page_start, page_end):
         return False
     return True
 
 
+def _payload_to_evidence(
+    payload: dict[str, Any],
+    score: float,
+    source_tool: str,
+) -> dict[str, Any]:
+    """从 Qdrant payload 转换为 evidence 格式。"""
+    mm = payload.get("_multimodal_input")
+    if mm is not None:
+        chunk = mm.get("text", "")
+    else:
+        chunk = payload.get("page_content", "")
+
+    meta = payload.get("metadata", {})
+
+    title = meta.get("title", "Unknown Title")
+    pdf_name = meta.get("pdf_name", "")
+    authors = meta.get("authors", "")
+    page_idx = meta.get("page_idx", "")
+    chunk_type = meta.get("chunk_type", "text")
+    heading = meta.get("heading", "")
+    caption = meta.get("caption", "")
+    footnote = meta.get("footnote", "")
+    img_path = meta.get("img_path", "")
+    if mm is not None and not img_path:
+        img_path = mm.get("image", "")
+    img_path = _resolve_img_path(pdf_name, img_path)
+
+    return {
+        "evidence_id": _evidence_id(
+            pdf_name=pdf_name,
+            page_idx=page_idx,
+            chunk_type=chunk_type,
+            text=chunk,
+            img_path=img_path,
+        ),
+        "title": title,
+        "pdf_name": pdf_name,
+        "authors": authors,
+        "page_idx": page_idx,
+        "chunk_type": chunk_type,
+        "heading": heading,
+        "section_path": meta.get("section_path", heading),
+        "section_depth": meta.get("section_depth", 0),
+        "local_label": meta.get("local_label", ""),
+        "score": round(score, 6),
+        "text": chunk,
+        "img_path": img_path,
+        "has_image": meta.get("has_image", bool(img_path)),
+        "has_caption": meta.get("has_caption", bool(caption)),
+        "caption": caption,
+        "footnote": footnote,
+        "figure_or_table_label": meta.get("figure_or_table_label", ""),
+        "chunk_order": meta.get("chunk_order", -1),
+        "page_chunk_order": meta.get("page_chunk_order", -1),
+        "source_tool": source_tool,
+    }
+
+
+def _results_json(
+    query: str,
+    source_tool: str,
+    results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Wrap results in a standard JSON structure."""
+    return {"query": query, "tool": source_tool, "results": results}
+
+
 def _format_results(
     results: list[dict[str, Any]],
     source_tool: str,
 ) -> list[dict[str, Any]]:
+    """Convert list of results to evidence format."""
     return [
         _payload_to_evidence(doc.get("payload", {}), doc.get("score", 0.0), source_tool)
         for doc in results
@@ -318,20 +349,24 @@ def _format_results(
 
 
 def _visual_key(item: dict[str, Any]) -> tuple[str, str, str]:
+    """Generate a deduplication key for visual chunks."""
     payload = item.get("payload", {})
-    pdf_name = str(payload.get("pdf_name", ""))
-    page_idx = str(payload.get("page_idx", ""))
-    label = str(payload.get("figure_or_table_label", "") or payload.get("img_path", ""))
+    meta = payload.get("metadata", {})
+    pdf_name = str(meta.get("pdf_name", ""))
+    page_idx = str(meta.get("page_idx", ""))
+    label = str(meta.get("figure_or_table_label", "") or meta.get("img_path", ""))
     return pdf_name, page_idx, label
 
 
 def _visual_rank(item: dict[str, Any]) -> tuple[float, int, int, int]:
+    """Generate a sort key for ranking visual chunks."""
     payload = item.get("payload", {})
+    meta = payload.get("metadata", {})
     return (
         float(item.get("score", 0.0)),
-        1 if payload.get("chunk_type") == "table" else 0,
-        1 if payload.get("has_caption") else 0,
-        1 if payload.get("has_image") else 0,
+        1 if meta.get("chunk_type") == "table" else 0,
+        1 if meta.get("has_caption") else 0,
+        1 if meta.get("has_image") else 0,
     )
 
 
@@ -355,26 +390,27 @@ def search_papers(
     Use this tool first for most questions about paper content, contributions,
     methods, results, authors, or conclusions.
     """
-    metadata_dict = _build_structured_filter(
-        filter_metadata,
+    qdrant_filter = _build_qdrant_filter(
         pdf_name=pdf_name,
-        page_idx=page_idx,
         chunk_types=chunk_types,
+        page_idx=page_idx,
         page_start=page_start,
         page_end=page_end,
+        filter_metadata=filter_metadata,
     )
 
     try:
-        results = vector_store.search_similar(
+        results = get_vector_store().similarity_search_with_rerank(
             query,
-            top_k=max(top_k * 3, top_k),
-            filter_metadata=metadata_dict,
+            k=top_k,
+            filter=qdrant_filter,
             candidate_k=max(top_k * 8, 24),
         )
     except Exception as exc:
         logger.error("Vector store search failed: %s", exc)
         return _results_json(query, "search_papers", [])
 
+    # 客户端过滤（无法用 Qdrant Filter 表达的条件）
     filtered = [
         doc
         for doc in results
@@ -423,8 +459,7 @@ def search_visuals(
         visual_query = f"{query} {figure_or_table_label}"
 
     for chunk_type in visual_chunk_types:
-        filter_metadata = _build_structured_filter(
-            "{}",
+        qdrant_filter = _build_qdrant_filter(
             pdf_name=pdf_name,
             page_idx=page_idx,
             chunk_types=[chunk_type],
@@ -432,10 +467,10 @@ def search_visuals(
             page_end=page_end,
         )
         try:
-            results = vector_store.search_similar(
+            results = get_vector_store().similarity_search_with_rerank(
                 visual_query,
-                top_k=max(4, top_k * 3),
-                filter_metadata=filter_metadata,
+                k=max(4, top_k * 3),
+                filter=qdrant_filter,
                 score_threshold=0.0,
                 candidate_k=max(top_k * 10, 20),
             )
@@ -488,11 +523,20 @@ def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> str:
     Use this after a search tool identifies a promising page and you want nearby
     context from the same page or section.
     """
+    qdrant_filter = models.Filter(
+        must=[
+            models.FieldCondition(
+                key="metadata.pdf_name",
+                match=models.MatchValue(value=pdf_name),
+            ),
+            models.FieldCondition(
+                key="metadata.page_idx",
+                match=models.MatchValue(value=page_idx),
+            ),
+        ]
+    )
     try:
-        results = vector_store.fetch_by_metadata(
-            {"pdf_name": pdf_name, "page_idx": page_idx},
-            limit=20,
-        )
+        results = get_vector_store().fetch_by_metadata(qdrant_filter, limit=20)
     except Exception as exc:
         logger.error("Page-context fetch failed: %s", exc)
         return _results_json(f"{pdf_name}:{page_idx}", "get_page_context", [])
@@ -500,7 +544,8 @@ def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> str:
     formatted: list[dict[str, Any]] = []
     for doc in results:
         payload = doc.get("payload", {})
-        payload_heading = str(payload.get("heading", ""))
+        meta = payload.get("metadata", {})
+        payload_heading = str(meta.get("heading", ""))
         if heading and payload_heading and heading not in payload_heading:
             continue
         formatted.append(_payload_to_evidence(payload, 1.0, "get_page_context"))

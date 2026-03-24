@@ -2,6 +2,8 @@ import os
 import shutil
 from typing import Any, Optional
 
+from qdrant_client.http import models
+
 from api.config import API_UPLOAD_DIR
 from api.schemas import (
     ChunkItem,
@@ -18,9 +20,35 @@ PDF_STORAGE_DIR = config.PDF_STORAGE_DIR
 
 
 def _get_vector_store():
-    from src.rag.vector_store import vector_store
+    from src.rag.vector_store import get_vector_store
 
-    return vector_store
+    return get_vector_store()
+
+
+def _build_filter(
+    pdf_name: str = "", chunk_type: str | None = None
+) -> models.Filter | None:
+    """构建 Qdrant Filter 对象。
+
+    Returns:
+        models.Filter 对象，无条件时返回 None
+    """
+    must_conditions: list[models.Condition] = []
+    if pdf_name:
+        must_conditions.append(
+            models.FieldCondition(
+                key="metadata.pdf_name",
+                match=models.MatchValue(value=pdf_name),
+            )
+        )
+    if chunk_type:
+        must_conditions.append(
+            models.FieldCondition(
+                key="metadata.chunk_type",
+                match=models.MatchValue(value=chunk_type),
+            )
+        )
+    return models.Filter(must=must_conditions) if must_conditions else None
 
 
 def upload_paper(file_path: str) -> PaperUploadResponse:
@@ -48,7 +76,7 @@ def upload_paper(file_path: str) -> PaperUploadResponse:
 
     # Now write to vector store
     vector_store = _get_vector_store()
-    vector_store.store_multimodal_inputs(multimodal_inputs, metadata_list)
+    vector_store.add_multimodal(multimodal_inputs, metadata_list)
 
     return PaperUploadResponse(
         pdf_name=pdf_name,
@@ -66,12 +94,13 @@ def list_papers() -> list[PaperItem]:
     paper_map: dict[str, dict[str, Any]] = {}
     for point in all_points:
         payload = point.get("payload", {})
-        pdf_name = payload.get("pdf_name", "")
+        meta = payload.get("metadata", {})
+        pdf_name = meta.get("pdf_name", "")
         if pdf_name and pdf_name not in paper_map:
             paper_map[pdf_name] = {
                 "pdf_name": pdf_name,
-                "title": payload.get("title", pdf_name),
-                "authors": payload.get("authors", ""),
+                "title": meta.get("title", pdf_name),
+                "authors": meta.get("authors", ""),
                 "chunk_count": 0,
             }
         if pdf_name:
@@ -86,23 +115,25 @@ def list_papers() -> list[PaperItem]:
 def get_paper_detail(pdf_name: str) -> Optional[PaperDetail]:
     vector_store = _get_vector_store()
 
-    points, _ = vector_store.scroll_chunks({"pdf_name": pdf_name}, limit=1)
+    qdrant_filter = _build_filter(pdf_name=pdf_name)
+    points, _ = vector_store.scroll_chunks(qdrant_filter, limit=1)
     if not points:
         return None
 
     payload = points[0].get("payload", {})
-    chunk_count = vector_store.count_chunks({"pdf_name": pdf_name})
+    meta = payload.get("metadata", {})
+    chunk_count = vector_store.count_chunks(qdrant_filter)
 
     return PaperDetail(
         pdf_name=pdf_name,
-        title=payload.get("title", pdf_name),
-        authors=payload.get("authors", ""),
+        title=meta.get("title", pdf_name),
+        authors=meta.get("authors", ""),
         chunk_count=chunk_count,
         metadata={
-            "title": payload.get("title"),
-            "authors": payload.get("authors"),
-            "chunk_type": payload.get("chunk_type"),
-            "backend": payload.get("backend"),
+            "title": meta.get("title"),
+            "authors": meta.get("authors"),
+            "chunk_type": meta.get("chunk_type"),
+            "backend": meta.get("backend"),
         },
     )
 
@@ -115,13 +146,10 @@ def get_paper_chunks(
 ) -> ChunkListResponse:
     vector_store = _get_vector_store()
 
-    filters = {"pdf_name": pdf_name}
-    if chunk_type:
-        filters["chunk_type"] = chunk_type
+    qdrant_filter = _build_filter(pdf_name=pdf_name, chunk_type=chunk_type)
+    total = vector_store.count_chunks(qdrant_filter)
 
-    total = vector_store.count_chunks(filters)
-
-    all_points, _ = vector_store.scroll_chunks(filters, limit=10000)
+    all_points, _ = vector_store.scroll_chunks(qdrant_filter, limit=10000)
 
     start = (page - 1) * limit
     end = start + limit
@@ -130,6 +158,7 @@ def get_paper_chunks(
     chunks = []
     for point in page_results:
         payload = point.get("payload", {})
+        meta = payload.get("metadata", {})
         point_id = point.get("id", "")
         mm_input = payload.get("_multimodal_input", {})
 
@@ -137,9 +166,9 @@ def get_paper_chunks(
             ChunkItem(
                 id=str(point_id),
                 content=mm_input.get("text", payload.get("page_content", "")),
-                chunk_type=payload.get("chunk_type", "text"),
-                page_idx=payload.get("page_idx"),
-                heading=payload.get("heading"),
+                chunk_type=meta.get("chunk_type", "text"),
+                page_idx=meta.get("page_idx"),
+                heading=meta.get("heading"),
                 image=mm_input.get("image"),
             )
         )
@@ -157,11 +186,13 @@ def delete_paper(pdf_name: str) -> bool:
 
     manager = PaperManager(output_dir="./data/parsed")
 
+    # Delete PDF file
     pdf_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_name}.pdf")
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
 
-    return manager.delete_paper(pdf_name)
+    # Delete from vector store and parsed files (manager handles both)
+    return manager.delete_paper(pdf_name, delete_from_vector_store=True)
 
 
 def save_uploaded_file(file_content: bytes, filename: str) -> str:
@@ -187,7 +218,8 @@ def get_pdf_path(pdf_name: str) -> Optional[str]:
 def get_paper_toc(pdf_name: str) -> Optional[TOCResponse]:
     vector_store = _get_vector_store()
 
-    all_points, _ = vector_store.scroll_chunks({"pdf_name": pdf_name}, limit=10000)
+    qdrant_filter = _build_filter(pdf_name=pdf_name)
+    all_points, _ = vector_store.scroll_chunks(qdrant_filter, limit=10000)
     if not all_points:
         return None
 
@@ -198,13 +230,14 @@ def get_paper_toc(pdf_name: str) -> Optional[TOCResponse]:
 
     for point in all_points:
         payload = point.get("payload", {})
-        page_idx = payload.get("page_idx", 0)
+        meta = payload.get("metadata", {})
+        page_idx = meta.get("page_idx", 0)
         if isinstance(page_idx, int) and page_idx > max_page:
             max_page = page_idx
 
-        chunk_type = payload.get("chunk_type", "text")
-        heading = str(payload.get("heading", "") or "").strip()
-        section_depth = payload.get("section_depth", 0)
+        chunk_type = meta.get("chunk_type", "text")
+        heading = str(meta.get("heading", "") or "").strip()
+        section_depth = meta.get("section_depth", 0)
 
         if chunk_type in ("text", "title") and heading:
             if heading not in seen_sections:
@@ -220,8 +253,8 @@ def get_paper_toc(pdf_name: str) -> Optional[TOCResponse]:
                 )
 
         if chunk_type in ("image", "table"):
-            label = payload.get("figure_or_table_label", "")
-            caption = str(payload.get("caption", "") or "").strip()
+            label = meta.get("figure_or_table_label", "")
+            caption = str(meta.get("caption", "") or "").strip()
             visual_text = label or caption or f"{chunk_type.capitalize()}"
             visual_key = f"{chunk_type}-{page_idx}-{visual_text}"
 

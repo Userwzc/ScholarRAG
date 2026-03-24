@@ -1,7 +1,6 @@
 import os
 import shutil
 
-from src.rag.vector_store import vector_store
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -13,20 +12,27 @@ class PaperManager:
     def __init__(self, output_dir: str = "./data/parsed"):
         self.output_dir = output_dir
 
-    def delete_paper(self, pdf_name: str) -> bool:
+    def delete_paper(
+        self, pdf_name: str, delete_from_vector_store: bool = True
+    ) -> bool:
         """Delete a paper from Qdrant and remove its parsed files.
 
         Args:
             pdf_name: Name of the PDF (without extension)
+            delete_from_vector_store: Whether to delete from vector store (default True)
 
         Returns:
             True if deletion was successful, False otherwise.
         """
-        success = vector_store.delete_paper(pdf_name)
+        if delete_from_vector_store:
+            from src.rag.vector_store import get_vector_store
 
-        if not success:
-            logger.error("Failed to delete paper '%s' from vector store.", pdf_name)
-            return False
+            store = get_vector_store()
+            success = store.delete_paper(pdf_name)
+
+            if not success:
+                logger.error("Failed to delete paper '%s' from vector store.", pdf_name)
+                return False
 
         parsed_dir = os.path.join(self.output_dir, pdf_name)
         if os.path.isdir(parsed_dir):

@@ -1,489 +1,616 @@
-import uuid
-from typing import Any, Dict, List, Optional, Tuple
+"""多模态 Qdrant 向量存储，继承 LangChain QdrantVectorStore。
 
+扩展功能：
+1. 多模态输入存储（_multimodal_input payload）
+2. 确定性 UUIDv5 ID（幂等写入）
+3. Reranker 支持
+4. 图片搜索
+5. Hybrid 检索模式（dense + sparse）
+"""
+
+import torch
+import uuid
+from typing import Any
+
+from langchain_qdrant import QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from qdrant_client.http.models import Distance, VectorParams
 
 from config.settings import config
+from src.rag.reranker_strategy import NoOpReranker, RerankerStrategy
 from src.utils.logger import get_logger
-from .embedding import Qwen3VLEmbeddings
-from .reranker_strategy import NoOpReranker, RerankerStrategy
 
 logger = get_logger(__name__)
 
-# Namespace UUID for deterministic content-based IDs (UUIDv5).
 _NS = uuid.UUID("c0ffeeee-dead-beef-cafe-000000000000")
 
 
 def _content_uuid(*parts: str) -> str:
-    """Return a deterministic UUIDv5 derived from the concatenation of *parts*.
+    """确定性 UUIDv5，用于幂等写入。
 
-    Using a content-derived ID makes ``upsert`` idempotent: re-ingesting the
-    same chunk overwrites the existing point instead of creating a duplicate.
+    相同内容生成相同 ID，重复 upsert 会覆盖而非创建重复。
     """
     key = "\x00".join(parts)
     return str(uuid.uuid5(_NS, key))
 
 
-class PaperVectorStore:
+class MultimodalQdrantStore(QdrantVectorStore):
+    """扩展 QdrantVectorStore 支持多模态、Reranker、图片搜索。
+
+    Payload 结构（向后兼容）：
+    {
+        "page_content": "文本内容",
+        "metadata": {...元数据...},
+        "_multimodal_input": {"text": "...", "image": "..."}  // 可选
+    }
+
+    主要扩展：
+    - add_multimodal(): 存储多模态输入
+    - similarity_search_with_rerank(): 带 rerank 的搜索
+    - search_by_image(): 以图搜图/文
+    - fetch_by_metadata()/scroll_chunks(): 元数据操作
+    """
+
+    MULTIMODAL_KEY = "_multimodal_input"
+
     def __init__(
         self,
-        collection_name: str = "papers_rag",
+        client: QdrantClient,
+        collection_name: str,
+        embedding: Any,
+        reranker: RerankerStrategy | str | None = None,
+        sparse_embedding: Any | None = None,
+        retrieval_mode: RetrievalMode = RetrievalMode.DENSE,
+        **kwargs,
     ):
-        import torch
-        self.client = QdrantClient(
-            url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}"
+        """初始化多模态向量存储。
+
+        Args:
+            client: Qdrant 客户端
+            collection_name: 集合名称
+            embedding: 多模态 embedding 实例（必须支持 dict 输入）
+            reranker: 可选的 reranker 实例、模型路径字符串或 None
+                      - RerankerStrategy 实例：直接使用
+                      - str：延迟加载，首次搜索时加载模型
+                      - None：使用 NoOpReranker（不进行重排序）
+            sparse_embedding: 可选的 sparse embedding（HYBRID 模式需要）
+            retrieval_mode: 检索模式（DENSE/SPARSE/HYBRID）
+        """
+        super().__init__(
+            client=client,
+            collection_name=collection_name,
+            embedding=embedding,
+            sparse_embedding=sparse_embedding,
+            retrieval_mode=retrieval_mode,
+            validate_collection_config=False,
+            **kwargs,
         )
-        self.collection_name = collection_name
-        self.embeddings = Qwen3VLEmbeddings(
-            model_name_or_path=config.EMBEDDING_MODEL,
-            torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        )
+        self._reranker_path: str | None = None
+        self._reranker_instance: RerankerStrategy | None = None
+
+        if isinstance(reranker, str):
+            self._reranker_path = reranker
+        elif isinstance(reranker, RerankerStrategy):
+            self._reranker_instance = reranker
         self._ensure_collection()
 
-        self._reranker: RerankerStrategy = NoOpReranker()
-        if config.RERANKER_MODEL:
-            self._load_reranker(config.RERANKER_MODEL)
+    @property
+    def reranker(self) -> RerankerStrategy:
+        """延迟加载 reranker，仅在首次使用时加载模型。"""
+        if self._reranker_instance is None and self._reranker_path:
+            self._load_reranker()
+        return self._reranker_instance or NoOpReranker()
 
-    def _load_reranker(self, model_path: str) -> None:
-        """Lazily load the Qwen3VLReranker. Logs a warning on failure."""
-        import torch
+    def _load_reranker(self) -> None:
+        """加载 reranker 模型（延迟加载，节省显存）。"""
+        if not self._reranker_path:
+            return
         try:
             from src.custom.qwen3_vl_reranker import Qwen3VLReranker
 
-            self._reranker = Qwen3VLReranker(
-                model_name_or_path=model_path,
-                torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            self._reranker_instance = Qwen3VLReranker(
+                model_name_or_path=self._reranker_path,
+                torch_dtype=torch.bfloat16
+                if torch.cuda.is_bf16_supported()
+                else torch.float16,
             )
-            logger.info("Reranker loaded from %s", model_path)
+            logger.info("Reranker loaded from %s", self._reranker_path)
         except Exception as exc:
             logger.warning(
-                "Could not load reranker from %s: %s. Skipping reranking.",
-                model_path,
-                exc,
+                "Could not load reranker from %s: %s", self._reranker_path, exc
             )
+            self._reranker_instance = NoOpReranker()
 
-    def _ensure_collection(self, vector_size: int = None) -> None:
-        """Create Qdrant collection if it does not already exist."""
-        if vector_size is None:
-            vector_size = len(self.embeddings.embed_query("test"))
+    def _ensure_collection(self) -> None:
+        """确保 collection 存在，不存在则创建。"""
+        if self.client.collection_exists(self.collection_name):
+            return
 
-        collections = self.client.get_collections()
-        if not any(col.name == self.collection_name for col in collections.collections):
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        vector_size = len(self._embeddings.embed_query("test"))
+
+        if self.retrieval_mode == RetrievalMode.DENSE:
+            vectors_config = models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
             )
-            logger.info("Created Qdrant collection: %s", self.collection_name)
-
-    def _build_filter(
-        self, filter_metadata: Optional[Dict[str, Any]]
-    ) -> Optional[models.Filter]:
-        """Build a Qdrant filter from a flat dict or a small DSL."""
-        if not filter_metadata:
-            return None
-
-        if any(key in filter_metadata for key in ("must", "should", "must_not")):
-            return self._build_filter_dsl(filter_metadata)
-
-        conditions = [
-            self._field_condition(key, val) for key, val in filter_metadata.items()
-        ]
-        conditions = [condition for condition in conditions if condition is not None]
-        return models.Filter(must=conditions) if conditions else None
-
-    def _field_condition(
-        self,
-        key: str,
-        value: Any,
-    ) -> models.FieldCondition | None:
-        """Translate a single field spec into a Qdrant field condition."""
-        if value is None:
-            return None
-        if isinstance(value, dict):
-            if "any" in value:
-                return models.FieldCondition(
-                    key=key,
-                    match=models.MatchAny(any=value["any"]),
-                )
-            if "gte" in value or "lte" in value or "gt" in value or "lt" in value:
-                return models.FieldCondition(
-                    key=key,
-                    range=models.Range(
-                        gte=value.get("gte"),
-                        lte=value.get("lte"),
-                        gt=value.get("gt"),
-                        lt=value.get("lt"),
-                    ),
-                )
-            if "value" in value:
-                value = value["value"]
-
-        if isinstance(value, list):
-            return models.FieldCondition(
-                key=key,
-                match=models.MatchAny(any=value),
+            sparse_vectors_config = None
+        elif self.retrieval_mode == RetrievalMode.HYBRID:
+            vectors_config = models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
             )
+            sparse_vectors_config = {
+                self.sparse_vector_name: models.SparseVectorParams()
+            }
+        else:  # SPARSE
+            vectors_config = None
+            sparse_vectors_config = {
+                self.sparse_vector_name: models.SparseVectorParams()
+            }
 
-        return models.FieldCondition(key=key, match=models.MatchValue(value=value))
-
-    def _build_filter_dsl(self, spec: Dict[str, Any]) -> Optional[models.Filter]:
-        """Build a richer Qdrant filter supporting must/should/must_not."""
-        must_conditions = self._condition_list(spec.get("must", []))
-        should_conditions = self._condition_list(spec.get("should", []))
-        must_not_conditions = self._condition_list(spec.get("must_not", []))
-
-        if not must_conditions and not should_conditions and not must_not_conditions:
-            return None
-
-        return models.Filter(
-            must=must_conditions or None,
-            should=should_conditions or None,
-            must_not=must_not_conditions or None,
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=vectors_config,
+            sparse_vectors_config=sparse_vectors_config,
         )
+        logger.info("Created Qdrant collection: %s", self.collection_name)
 
-    def _condition_list(self, items: Any) -> List[models.Condition]:
-        """Normalize a list of condition specs into Qdrant conditions."""
-        if not items:
-            return []
+    # ========== 多模态存储 ==========
 
-        if isinstance(items, dict):
-            items = [items]
+    def add_multimodal(
+        self,
+        inputs: list[dict[str, Any]],
+        metadatas: list[dict[str, Any]] | None = None,
+        ids: list[str] | None = None,
+        batch_size: int = 4,
+    ) -> list[str]:
+        """存储多模态输入，支持图文混合 embedding。
 
-        conditions: List[models.Condition] = []
-        for item in items:
-            condition = self._condition_from_spec(item)
-            if condition is not None:
-                conditions.append(condition)
-        return conditions
+        Args:
+            inputs: 多模态输入列表，每个元素为 dict:
+                - {"text": "描述文本"}
+                - {"image": "/path/to/image.jpg"}
+                - {"text": "描述", "image": "/path/to/image.jpg"}
+            metadatas: 元数据列表，与 inputs 一一对应
+            ids: 可选的自定义 ID，不提供则生成确定性 UUIDv5
+            batch_size: 批处理大小
 
-    def _condition_from_spec(self, spec: Any) -> Optional[models.Condition]:
-        """Translate a condition spec into a Qdrant condition."""
-        if not isinstance(spec, dict):
-            return None
+        Returns:
+            存储的 ID 列表
+        """
+        metadatas = metadatas or [{} for _ in inputs]
 
-        if "must" in spec or "should" in spec or "must_not" in spec:
-            return self._build_filter_dsl(spec)
+        if len(inputs) != len(metadatas):
+            raise ValueError("inputs 和 metadatas 长度必须一致")
 
-        key = spec.get("key")
-        if not key:
-            return None
+        # 生成确定性 ID
+        if ids is None:
+            ids = [
+                _content_uuid(
+                    m.get("pdf_name", ""),
+                    str(m.get("page_idx", "")),
+                    m.get("chunk_type", ""),
+                    inp.get("text", "") if isinstance(inp, dict) else str(inp),
+                    m.get("img_path", ""),
+                )
+                for inp, m in zip(inputs, metadatas)
+            ]
 
-        if "match" in spec:
-            return models.FieldCondition(
-                key=key,
-                match=models.MatchValue(value=spec["match"]),
+        all_ids: list[str] = []
+        total_batches = -(-len(inputs) // batch_size)
+
+        for i in range(0, len(inputs), batch_size):
+            batch_inputs = inputs[i : i + batch_size]
+            batch_metas = metadatas[i : i + batch_size]
+            batch_ids = ids[i : i + batch_size]
+
+            # 使用 embedding 生成向量
+            vectors = self._embeddings.embed_documents(batch_inputs)
+
+            # 构建 points
+            points = []
+            for inp, meta, vec, pid in zip(
+                batch_inputs, batch_metas, vectors, batch_ids
+            ):
+                text = inp.get("text", "") if isinstance(inp, dict) else str(inp)
+                payload = {
+                    self.content_payload_key: text,
+                    self.metadata_payload_key: meta,
+                    self.MULTIMODAL_KEY: inp,
+                }
+
+                # 根据检索模式构建向量结构
+                if self.retrieval_mode == RetrievalMode.DENSE:
+                    vector_struct = {self.vector_name: vec}
+                elif self.retrieval_mode == RetrievalMode.HYBRID:
+                    sparse_vec = self.sparse_embeddings.embed_documents([text])[0]
+                    vector_struct = {
+                        self.vector_name: vec,
+                        self.sparse_vector_name: models.SparseVector(
+                            indices=sparse_vec.indices,
+                            values=sparse_vec.values,
+                        ),
+                    }
+                else:  # SPARSE
+                    sparse_vec = self.sparse_embeddings.embed_documents([text])[0]
+                    vector_struct = {
+                        self.sparse_vector_name: models.SparseVector(
+                            indices=sparse_vec.indices,
+                            values=sparse_vec.values,
+                        ),
+                    }
+
+                points.append(
+                    models.PointStruct(
+                        id=pid,
+                        vector=vector_struct,
+                        payload=payload,
+                    )
+                )
+
+            self.client.upsert(self.collection_name, points=points)
+            all_ids.extend(batch_ids)
+            logger.info(
+                "Upserted batch %d/%d (%d items)",
+                i // batch_size + 1,
+                total_batches,
+                len(batch_inputs),
             )
-        if "any" in spec:
-            return models.FieldCondition(
-                key=key,
-                match=models.MatchAny(any=spec["any"]),
-            )
-        if "range" in spec:
-            range_spec = spec["range"]
-            if not isinstance(range_spec, dict):
-                return None
-            return models.FieldCondition(
-                key=key,
-                range=models.Range(
-                    gte=range_spec.get("gte"),
-                    lte=range_spec.get("lte"),
-                    gt=range_spec.get("gt"),
-                    lt=range_spec.get("lt"),
-                ),
-            )
-        return None
+            torch.cuda.empty_cache()
 
-    def rerank(
+        logger.info(
+            "Stored %d multimodal items in collection %s",
+            len(inputs),
+            self.collection_name,
+        )
+        return all_ids
+
+    # ========== 带重排的搜索 ==========
+
+    def similarity_search_with_rerank(
         self,
         query: str,
-        results: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """Re-score *results* with the reranker and return them sorted by reranker score.
+        k: int = 5,
+        filter: models.Filter | None = None,
+        score_threshold: float = 0.0,
+        candidate_k: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """向量搜索 + 可选 rerank，返回原始 payload 格式。
 
-        If the active reranker is a ``NoOpReranker``, the original list is
-        returned unchanged.
-        Each result dict must contain a ``"payload"`` key.
+        Args:
+            query: 查询文本
+            k: 返回结果数量
+            filter: Qdrant Filter 对象
+            score_threshold: 分数阈值（低于此值的结果被过滤）
+            candidate_k: 候选数量，不指定时 rerank 模式下自动设为 k*3
+
+        Returns:
+            [{"score": float, "payload": dict}, ...]
         """
-        if isinstance(self._reranker, NoOpReranker) or not results:
+        # 计算候选数量（rerank 需要更多候选）
+        fetch_k = candidate_k
+        if fetch_k is None:
+            fetch_k = k * 3 if self._reranker_path else k
+
+        # 调用父类搜索
+        results = self.similarity_search_with_score(
+            query,
+            k=fetch_k,
+            filter=filter,
+            score_threshold=score_threshold if score_threshold > 0 else None,
+        )
+
+        # 转换格式：Document -> payload dict
+        raw = []
+        for doc, score in results:
+            if score < score_threshold:
+                continue
+            # 从 Document.metadata 重建 payload
+            payload = self._reconstruct_payload(doc)
+            raw.append({"score": score, "payload": payload})
+
+        # Rerank
+        if raw and self._reranker_path:
+            raw = self._do_rerank(query, raw)
+
+        return raw[:k]
+
+    def _reconstruct_payload(self, doc) -> dict[str, Any]:
+        """从 Document 重建完整 payload（包含 _multimodal_input）。
+
+        Document.metadata 已经包含了大部分信息，但 _multimodal_input
+        需要从 Qdrant 原始 payload 中获取（如果存在）。
+        """
+        meta = dict(doc.metadata)
+        # 移除 LangChain 自动添加的字段
+        meta.pop("_id", None)
+        meta.pop("_collection_name", None)
+
+        # 尝试从 Qdrant 获取完整 payload（包含 _multimodal_input）
+        point_id = doc.metadata.get("_id")
+        if point_id:
+            try:
+                points = self.client.retrieve(
+                    self.collection_name,
+                    [point_id],
+                    with_payload=True,
+                )
+                if points:
+                    return dict(points[0].payload)
+            except Exception:
+                pass
+
+        # 降级：使用 Document 字段重建
+        return {
+            self.content_payload_key: doc.page_content,
+            self.metadata_payload_key: meta,
+        }
+
+    def _do_rerank(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """执行 rerank 重排序。"""
+        if not results:
             return results
 
         documents = [{"text": self._payload_rerank_text(r["payload"])} for r in results]
         try:
-            scores = self._reranker.process(
-                {"query": {"text": query}, "documents": documents}
+            scores = self.reranker.process(
+                {
+                    "query": {"text": query},
+                    "documents": documents,
+                }
             )
         except Exception as exc:
-            logger.warning("Reranking failed, returning original order: %s", exc)
+            logger.warning("Reranking failed: %s", exc)
             return results
 
-        ranked = sorted(
-            zip(scores, results),
-            key=lambda x: x[0],
-            reverse=True,
-        )
+        ranked = sorted(zip(scores, results), key=lambda x: x[0], reverse=True)
         return [{"score": score, "payload": r["payload"]} for score, r in ranked]
 
-    def _payload_rerank_text(self, payload: Dict[str, Any]) -> str:
-        """Build richer rerank text from metadata and multimodal fields."""
-        mm = payload.get("_multimodal_input") or {}
-        text = mm.get("text", "") or payload.get("page_content", "")
+    def _payload_rerank_text(self, payload: dict[str, Any]) -> str:
+        """构建 rerank 用的富文本，包含元数据上下文。"""
+        mm = payload.get(self.MULTIMODAL_KEY) or {}
+        text = mm.get("text", "") or payload.get(self.content_payload_key, "")
+
+        meta = payload.get(self.metadata_payload_key, {})
 
         fields = [
-            payload.get("title", ""),
-            payload.get("authors", ""),
-            payload.get("section_path", payload.get("heading", "")),
-            payload.get("figure_or_table_label", ""),
-            payload.get("caption", ""),
-            payload.get("footnote", ""),
+            meta.get("title", ""),
+            meta.get("authors", ""),
+            meta.get("section_path", meta.get("heading", "")),
+            meta.get("figure_or_table_label", ""),
+            meta.get("caption", ""),
+            meta.get("footnote", ""),
             text,
         ]
 
-        chunk_type = str(payload.get("chunk_type", ""))
+        chunk_type = str(meta.get("chunk_type", ""))
         if chunk_type:
             fields.insert(0, f"Type: {chunk_type}")
-        page_idx = payload.get("page_idx")
+        page_idx = meta.get("page_idx")
         if page_idx != "" and page_idx is not None:
             fields.insert(0, f"Page: {page_idx}")
 
-        return "\n".join(str(field).strip() for field in fields if str(field).strip())
+        return "\n".join(str(f).strip() for f in fields if str(f).strip())
 
-    def _query_candidates(
-        self,
-        query: str,
-        candidate_k: int,
-        filter_metadata: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """Retrieve dense candidates before thresholding/reranking."""
-        vector = self.embeddings.embed_query(query)
-        filter_params = self._build_filter(filter_metadata)
-        results = self.client.query_points(
-            collection_name=self.collection_name,
-            query=vector,
-            limit=candidate_k,
-            query_filter=filter_params,
-        ).points
-        return [{"score": res.score, "payload": res.payload} for res in results]
-
-    def _apply_score_threshold(
-        self,
-        results: List[Dict[str, Any]],
-        score_threshold: float,
-    ) -> List[Dict[str, Any]]:
-        """Discard low-scoring candidates before reranking."""
-        if score_threshold <= 0.0:
-            return results
-
-        before = len(results)
-        filtered = [r for r in results if r["score"] >= score_threshold]
-        if len(filtered) < before:
-            logger.debug(
-                "Score threshold %.2f removed %d/%d candidates.",
-                score_threshold,
-                before - len(filtered),
-                before,
-            )
-        return filtered
-
-    def store_multimodal_inputs(
-        self,
-        inputs: List[Dict[str, Any]],
-        metadatas: List[Dict[str, Any]] = None,
-        batch_size: int = 4,
-    ) -> None:
-        """Embeds and uploads multimodal inputs (text + images) to the Qdrant collection."""
-        if metadatas is None:
-            metadatas = [{} for _ in range(len(inputs))]
-
-        if len(inputs) != len(metadatas):
-            raise ValueError("Number of inputs must match number of metadatas")
-
-        for i in range(0, len(inputs), batch_size):
-            batch_inputs = inputs[i : i + batch_size]
-            batch_metadatas = metadatas[i : i + batch_size]
-
-            vectors = self.embeddings.embed_inputs(batch_inputs)
-
-            batch_points = [
-                models.PointStruct(
-                    id=_content_uuid(
-                        metadata.get("pdf_name", ""),
-                        str(metadata.get("page_idx", "")),
-                        metadata.get("chunk_type", ""),
-                        inp.get("text", "") if isinstance(inp, dict) else "",
-                        metadata.get("img_path", "") if isinstance(inp, dict) else "",
-                    ),
-                    vector=vector,
-                    payload={**metadata, "_multimodal_input": inp},
-                )
-                for inp, vector, metadata in zip(batch_inputs, vectors, batch_metadatas)
-            ]
-
-            self.client.upsert(
-                collection_name=self.collection_name, points=batch_points
-            )
-            logger.info(
-                "Upserted batch %d/%d (%d items).",
-                i // batch_size + 1,
-                -(-len(inputs) // batch_size),
-                len(batch_inputs),
-            )
-
-        logger.info(
-            "Stored %d multimodal items in collection %s.",
-            len(inputs),
-            self.collection_name,
-        )
-
-    def search_similar(
-        self,
-        query: str,
-        top_k: int = 5,
-        filter_metadata: Optional[Dict[str, Any]] = None,
-        rerank: bool = True,
-        score_threshold: Optional[float] = None,
-        candidate_k: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """Vector search on the collection using a text query.
-
-        Parameters
-        ----------
-        query:
-            Free-text query string.
-        top_k:
-            Maximum number of results to return after all filtering.
-        filter_metadata:
-            Optional Qdrant exact-match metadata filter.
-        rerank:
-            Whether to apply the reranker (if configured).
-        score_threshold:
-            Minimum cosine-similarity score (0–1) for a result to be kept.
-            Chunks scoring below this value are discarded before reaching the
-            LLM.  Defaults to ``config.SCORE_THRESHOLD``; pass ``0.0`` to
-            disable filtering for a specific call.
-        """
-        if score_threshold is None:
-            score_threshold = config.SCORE_THRESHOLD
-
-        # Over-fetch when reranking so the reranker has more candidates to sort.
-        fetch_k = candidate_k
-        if fetch_k is None:
-            fetch_k = (
-                top_k * 3
-                if (rerank and not isinstance(self._reranker, NoOpReranker))
-                else top_k
-            )
-
-        raw = self._query_candidates(
-            query=query,
-            candidate_k=fetch_k,
-            filter_metadata=filter_metadata,
-        )
-        raw = self._apply_score_threshold(raw, score_threshold)
-
-        if rerank:
-            raw = self.rerank(query, raw)
-
-        return raw[:top_k]
+    # ========== 图片搜索 ==========
 
     def search_by_image(
         self,
         image_path: str,
-        instruction: str = None,
-        text: str = None,
-        top_k: int = 5,
-        filter_metadata: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """Vector search on the collection using an image query."""
-        vector = self.embeddings.embed_image(
-            image_path=image_path, text=text, instruction=instruction
+        instruction: str | None = None,
+        text: str | None = None,
+        k: int = 5,
+        filter: models.Filter | None = None,
+    ) -> list[dict[str, Any]]:
+        """以图搜图/文。
+
+        Args:
+            image_path: 图片路径
+            instruction: 嵌入指令
+            text: 可选的附加文本
+            k: 返回数量
+            filter: Qdrant Filter
+
+        Returns:
+            [{"score": float, "payload": dict}, ...]
+        """
+        input_dict: dict[str, Any] = {"image": image_path}
+        if text:
+            input_dict["text"] = text
+
+        vector = self._embeddings.embed_query(
+            input_dict,
+            instruction=instruction
+            or "Retrieve images or text relevant to the user's query.",
         )
-        filter_params = self._build_filter(filter_metadata)
 
-        results = self.client.query_points(
-            collection_name=self.collection_name,
-            query=vector,
-            limit=top_k,
-            query_filter=filter_params,
-        ).points
+        results = self.similarity_search_with_score_by_vector(
+            vector,
+            k=k,
+            filter=filter,
+        )
 
-        return [{"score": res.score, "payload": res.payload} for res in results]
+        return [
+            {"score": score, "payload": self._reconstruct_payload(doc)}
+            for doc, score in results
+        ]
+
+    # ========== 元数据操作 ==========
 
     def fetch_by_metadata(
         self,
-        filter_metadata: Dict[str, Any],
+        filter: models.Filter,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
-        """Fetch points by exact-match metadata without vector search."""
-        filter_params = self._build_filter(filter_metadata)
-        if filter_params is None:
-            return []
+    ) -> list[dict[str, Any]]:
+        """按元数据获取 points（无向量搜索）。
 
+        Args:
+            filter: Qdrant Filter 对象
+            limit: 最大返回数量
+
+        Returns:
+            [{"payload": dict}, ...]
+        """
         points, _ = self.client.scroll(
             collection_name=self.collection_name,
-            scroll_filter=filter_params,
+            scroll_filter=filter,
             limit=limit,
             with_payload=True,
             with_vectors=False,
         )
-        return [{"payload": point.payload} for point in points]
-
-    def get_all_papers(self) -> List[Dict[str, Any]]:
-        """Returns metadata for all chunks to extract unique papers."""
-        points, _ = self.client.scroll(
-            collection_name=self.collection_name,
-            scroll_filter=None,
-            limit=10000,
-            with_payload=True,
-            with_vectors=False,
-        )
-        return [{"payload": point.payload} for point in points]
-
-    def count_chunks(self, filter_metadata: Dict[str, Any]) -> int:
-        """Count the number of chunks matching the given filter."""
-        filter_params = self._build_filter(filter_metadata)
-        return self.client.count(
-            collection_name=self.collection_name,
-            count_filter=filter_params,
-            exact=True,
-        ).count
+        return [{"payload": p.payload} for p in points]
 
     def scroll_chunks(
         self,
-        filter_metadata: Dict[str, Any],
+        filter: models.Filter | None = None,
         limit: int = 10000,
-        offset: Optional[Any] = None,
-    ) -> Tuple[List[Dict[str, Any]], Optional[Any]]:
-        """Scroll through chunks matching a filter."""
-        filter_params = self._build_filter(filter_metadata)
-        points, next_page_offset = self.client.scroll(
+        offset: Any | None = None,
+    ) -> tuple[list[dict[str, Any]], Any | None]:
+        """分页滚动获取 chunks。
+
+        Args:
+            filter: Qdrant Filter 对象
+            limit: 每页数量
+            offset: 分页偏移（由上一次调用返回）
+
+        Returns:
+            (results, next_offset)
+        """
+        points, next_offset = self.client.scroll(
             collection_name=self.collection_name,
-            scroll_filter=filter_params,
+            scroll_filter=filter,
             limit=limit,
             offset=offset,
             with_payload=True,
             with_vectors=False,
         )
-        return [{"id": point.id, "payload": point.payload} for point in points], next_page_offset
+        return [{"id": p.id, "payload": p.payload} for p in points], next_offset
 
-    def delete_paper(self, pdf_name: str) -> bool:
-        """Delete all chunks associated with a specific paper by pdf_name.
+    def delete_by_metadata(
+        self,
+        filter: models.Filter,
+    ) -> bool:
+        """按元数据删除 points。
 
-        Returns True if deletion was successful, False otherwise.
+        Args:
+            filter: Qdrant Filter 对象
+
+        Returns:
+            是否成功
         """
-        filter_params = self._build_filter({"pdf_name": pdf_name})
         try:
             self.client.delete(
                 collection_name=self.collection_name,
-                points_selector=models.FilterSelector(filter=filter_params),
+                points_selector=models.FilterSelector(filter=filter),
             )
-            logger.info("Deleted points for pdf_name=%s", pdf_name)
+            logger.info("Deleted points matching filter")
             return True
         except Exception as exc:
-            logger.error("Failed to delete points for %s: %s", pdf_name, exc)
+            logger.error("Failed to delete points: %s", exc)
             return False
 
+    def delete_paper(self, pdf_name: str) -> bool:
+        """删除指定论文的所有 chunks。
 
-# Module-level singleton instance
-vector_store = PaperVectorStore()
+        Args:
+            pdf_name: 论文名称（不含 .pdf 后缀）
+
+        Returns:
+            是否成功
+        """
+        filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.pdf_name", match=models.MatchValue(value=pdf_name)
+                )
+            ]
+        )
+        return self.delete_by_metadata(filter)
+
+    def get_all_papers(self) -> list[dict[str, Any]]:
+        """获取所有 chunks 的 payload（用于提取论文列表）。"""
+        points, _ = self.client.scroll(
+            collection_name=self.collection_name,
+            limit=10000,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [{"payload": p.payload} for p in points]
+
+    def count_chunks(self, filter: models.Filter | None = None) -> int:
+        """统计 chunks 数量。
+
+        Args:
+            filter: 可选的 Qdrant Filter
+
+        Returns:
+            匹配的 chunk 数量
+        """
+        return self.client.count(
+            collection_name=self.collection_name,
+            count_filter=filter,
+            exact=True,
+        ).count
+
+
+# ========== 模块级单例（延迟初始化） ==========
+
+_vector_store: MultimodalQdrantStore | None = None
+
+
+def _create_vector_store() -> MultimodalQdrantStore:
+    """创建 vector_store 实例（延迟初始化，避免 CUDA/vLLM 冲突）。"""
+    import torch
+
+    from src.rag.embedding import Qwen3VLEmbeddings
+
+    client = QdrantClient(url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}")
+
+    embeddings = Qwen3VLEmbeddings(
+        model_name_or_path=config.EMBEDDING_MODEL,
+        torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+    )
+
+    # Reranker 路径（延迟加载，首次搜索时才加载模型，节省显存）
+    reranker_path: str | None = config.RERANKER_MODEL if config.RERANKER_MODEL else None
+
+    # Sparse embedding（HYBRID 模式）
+    sparse_embedding = None
+    retrieval_mode = RetrievalMode.DENSE
+    if getattr(config, "ENABLE_HYBRID", False):
+        try:
+            from langchain_qdrant import FastEmbedSparse
+
+            sparse_embedding = FastEmbedSparse(model_name="Qdrant/bm25")
+            retrieval_mode = RetrievalMode.HYBRID
+            logger.info("Hybrid mode enabled with FastEmbed sparse")
+        except Exception as exc:
+            logger.warning(
+                "Could not load sparse embedding, falling back to DENSE: %s", exc
+            )
+
+    return MultimodalQdrantStore(
+        client=client,
+        collection_name="papers_rag",
+        embedding=embeddings,
+        reranker=reranker_path,
+        sparse_embedding=sparse_embedding,
+        retrieval_mode=retrieval_mode,
+    )
+
+
+def get_vector_store() -> MultimodalQdrantStore:
+    """获取 vector_store 单例。"""
+    global _vector_store
+    if _vector_store is None:
+        _vector_store = _create_vector_store()
+    return _vector_store
+
+
+# 向后兼容：保留旧的全局变量名（但改为函数调用）
+# 注意：直接使用 `vector_store` 会返回 None，需要改用 `get_vector_store()`
+vector_store = None  # type: ignore[assignment]

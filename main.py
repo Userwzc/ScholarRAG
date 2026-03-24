@@ -1,6 +1,5 @@
 import argparse
 import os
-import re
 import sys
 import warnings
 
@@ -15,17 +14,11 @@ from dotenv import load_dotenv  # noqa: E402
 # config singletons are constructed.
 load_dotenv(override=True)
 
-from src.ingest.mineru_parser import MinerUParser  # noqa: E402
 
-# NOTE: vector_store and agent_app are intentionally NOT imported at module
-# level.  Both load Qwen3VLEmbedder which initialises CUDA immediately.  When
-# the `add` subcommand is used, MinerU's hybrid/vlm backend launches a vLLM
-# worker subprocess via `spawn`.  vLLM detects CUDA-already-initialised and
-# forces spawn mode, but the EngineCore child process then crashes because it
-# inherits the parent's CUDA context.  Deferring these imports to after
-# parse_pdf() completes avoids the conflict entirely.
+# NOTE: get_vector_store is intentionally NOT imported at module level.
+# Importing it triggers CUDA initialization which conflicts with MinerU's
+# hybrid-auto-engine vLLM backend when both are used in the same process.
 from src.utils.logger import get_logger  # noqa: E402
-from config.settings import config  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -42,17 +35,17 @@ def add_paper(pdf_path: str) -> None:
 
     logger.info("Adding paper from %s …", pdf_path)
 
-    # Use centralized ingestion logic
-    from src.core.ingestion import process_paper
-    multimodal_inputs, metadata_list, _ = process_paper(pdf_path, save_markdown=True)
-
     # Import vector_store only after parse_pdf() has finished and released
     # the vLLM subprocess.  This guarantees CUDA is not yet initialised in
     # this process when vLLM spawns its EngineCore child, avoiding the
     # "EngineCore died unexpectedly" crash.
-    from src.rag.vector_store import vector_store  # noqa: E402
+    from src.rag.vector_store import get_vector_store  # noqa: E402
 
-    vector_store.store_multimodal_inputs(multimodal_inputs, metadata_list)
+    # Use centralized ingestion logic (call once, not twice)
+    from src.core.ingestion import process_paper
+
+    multimodal_inputs, metadata_list, _ = process_paper(pdf_path, save_markdown=True)
+    get_vector_store().add_multimodal(multimodal_inputs, metadata_list)
     logger.info("Paper added successfully — %d chunks stored.", len(multimodal_inputs))
 
 
@@ -138,12 +131,12 @@ def query_agent(question: str) -> None:
 
 
 def delete_paper(pdf_name: str) -> None:
-    """Delete a paper from Qdrant and remove its parsed files."""
+    """Delete a paper from Qdrant and remove its parsed file."""
     from src.ingest.paper_manager import PaperManager
 
     logger.info("Deleting paper: %s …", pdf_name)
     manager = PaperManager(output_dir="./data/parsed")
-    manager.delete_paper(pdf_name)
+    manager.delete_paper(pdf_name, delete_from_vector_store=True)
 
 
 if __name__ == "__main__":
