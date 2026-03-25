@@ -3,21 +3,20 @@
 扩展功能：
 1. 多模态输入存储（_multimodal_input payload）
 2. 确定性 UUIDv5 ID（幂等写入）
-3. Reranker 支持
-4. 图片搜索
-5. Hybrid 检索模式（dense + sparse）
+3. 图片搜索
+4. Hybrid 检索模式（dense + sparse）
 """
 
-import torch
+import threading
 import uuid
 from typing import Any
 
-from langchain_qdrant import QdrantVectorStore, RetrievalMode
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+import torch  # pyright: ignore[reportMissingImports]
+from langchain_qdrant import QdrantVectorStore, RetrievalMode  # pyright: ignore[reportMissingImports]
+from qdrant_client import QdrantClient  # pyright: ignore[reportMissingImports]
+from qdrant_client.http import models  # pyright: ignore[reportMissingImports]
 
 from config.settings import config
-from src.rag.reranker_strategy import NoOpReranker, RerankerStrategy
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -35,22 +34,6 @@ def _content_uuid(*parts: str) -> str:
 
 
 class MultimodalQdrantStore(QdrantVectorStore):
-    """扩展 QdrantVectorStore 支持多模态、Reranker、图片搜索。
-
-    Payload 结构（向后兼容）：
-    {
-        "page_content": "文本内容",
-        "metadata": {...元数据...},
-        "_multimodal_input": {"text": "...", "image": "..."}  // 可选
-    }
-
-    主要扩展：
-    - add_multimodal(): 存储多模态输入
-    - similarity_search_with_rerank(): 带 rerank 的搜索
-    - search_by_image(): 以图搜图/文
-    - fetch_by_metadata()/scroll_chunks(): 元数据操作
-    """
-
     MULTIMODAL_KEY = "_multimodal_input"
 
     def __init__(
@@ -58,7 +41,6 @@ class MultimodalQdrantStore(QdrantVectorStore):
         client: QdrantClient,
         collection_name: str,
         embedding: Any,
-        reranker: RerankerStrategy | str | None = None,
         sparse_embedding: Any | None = None,
         retrieval_mode: RetrievalMode = RetrievalMode.DENSE,
         **kwargs,
@@ -69,10 +51,6 @@ class MultimodalQdrantStore(QdrantVectorStore):
             client: Qdrant 客户端
             collection_name: 集合名称
             embedding: 多模态 embedding 实例（必须支持 dict 输入）
-            reranker: 可选的 reranker 实例、模型路径字符串或 None
-                      - RerankerStrategy 实例：直接使用
-                      - str：延迟加载，首次搜索时加载模型
-                      - None：使用 NoOpReranker（不进行重排序）
             sparse_embedding: 可选的 sparse embedding（HYBRID 模式需要）
             retrieval_mode: 检索模式（DENSE/SPARSE/HYBRID）
         """
@@ -85,41 +63,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
             validate_collection_config=False,
             **kwargs,
         )
-        self._reranker_path: str | None = None
-        self._reranker_instance: RerankerStrategy | None = None
-
-        if isinstance(reranker, str):
-            self._reranker_path = reranker
-        elif isinstance(reranker, RerankerStrategy):
-            self._reranker_instance = reranker
         self._ensure_collection()
-
-    @property
-    def reranker(self) -> RerankerStrategy:
-        """延迟加载 reranker，仅在首次使用时加载模型。"""
-        if self._reranker_instance is None and self._reranker_path:
-            self._load_reranker()
-        return self._reranker_instance or NoOpReranker()
-
-    def _load_reranker(self) -> None:
-        """加载 reranker 模型（延迟加载，节省显存）。"""
-        if not self._reranker_path:
-            return
-        try:
-            from src.custom.qwen3_vl_reranker import Qwen3VLReranker
-
-            self._reranker_instance = Qwen3VLReranker(
-                model_name_or_path=self._reranker_path,
-                torch_dtype=torch.bfloat16
-                if torch.cuda.is_bf16_supported()
-                else torch.float16,
-            )
-            logger.info("Reranker loaded from %s", self._reranker_path)
-        except Exception as exc:
-            logger.warning(
-                "Could not load reranker from %s: %s", self._reranker_path, exc
-            )
-            self._reranker_instance = NoOpReranker()
 
     def _ensure_collection(self) -> None:
         """确保 collection 存在，不存在则创建。"""
@@ -265,9 +209,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
         )
         return all_ids
 
-    # ========== 带重排的搜索 ==========
-
-    def similarity_search_with_rerank(
+    def similarity_search(
         self,
         query: str,
         k: int = 5,
@@ -275,22 +217,21 @@ class MultimodalQdrantStore(QdrantVectorStore):
         score_threshold: float = 0.0,
         candidate_k: int | None = None,
     ) -> list[dict[str, Any]]:
-        """向量搜索 + 可选 rerank，返回原始 payload 格式。
+        """默认使用 hybrid retrieval 的向量搜索，返回原始 payload 格式。
 
         Args:
             query: 查询文本
             k: 返回结果数量
             filter: Qdrant Filter 对象
             score_threshold: 分数阈值（低于此值的结果被过滤）
-            candidate_k: 候选数量，不指定时 rerank 模式下自动设为 k*3
+            candidate_k: 候选数量，不指定时自动设为 k
 
         Returns:
             [{"score": float, "payload": dict}, ...]
         """
-        # 计算候选数量（rerank 需要更多候选）
         fetch_k = candidate_k
         if fetch_k is None:
-            fetch_k = k * 3 if self._reranker_path else k
+            fetch_k = k
 
         # 调用父类搜索
         results = self.similarity_search_with_score(
@@ -308,10 +249,6 @@ class MultimodalQdrantStore(QdrantVectorStore):
             # 从 Document.metadata 重建 payload
             payload = self._reconstruct_payload(doc)
             raw.append({"score": score, "payload": payload})
-
-        # Rerank
-        if raw and self._reranker_path:
-            raw = self._do_rerank(query, raw)
 
         return raw[:k]
 
@@ -345,56 +282,6 @@ class MultimodalQdrantStore(QdrantVectorStore):
             self.content_payload_key: doc.page_content,
             self.metadata_payload_key: meta,
         }
-
-    def _do_rerank(
-        self,
-        query: str,
-        results: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """执行 rerank 重排序。"""
-        if not results:
-            return results
-
-        documents = [{"text": self._payload_rerank_text(r["payload"])} for r in results]
-        try:
-            scores = self.reranker.process(
-                {
-                    "query": {"text": query},
-                    "documents": documents,
-                }
-            )
-        except Exception as exc:
-            logger.warning("Reranking failed: %s", exc)
-            return results
-
-        ranked = sorted(zip(scores, results), key=lambda x: x[0], reverse=True)
-        return [{"score": score, "payload": r["payload"]} for score, r in ranked]
-
-    def _payload_rerank_text(self, payload: dict[str, Any]) -> str:
-        """构建 rerank 用的富文本，包含元数据上下文。"""
-        mm = payload.get(self.MULTIMODAL_KEY) or {}
-        text = mm.get("text", "") or payload.get(self.content_payload_key, "")
-
-        meta = payload.get(self.metadata_payload_key, {})
-
-        fields = [
-            meta.get("title", ""),
-            meta.get("authors", ""),
-            meta.get("section_path", meta.get("heading", "")),
-            meta.get("figure_or_table_label", ""),
-            meta.get("caption", ""),
-            meta.get("footnote", ""),
-            text,
-        ]
-
-        chunk_type = str(meta.get("chunk_type", ""))
-        if chunk_type:
-            fields.insert(0, f"Type: {chunk_type}")
-        page_idx = meta.get("page_idx")
-        if page_idx != "" and page_idx is not None:
-            fields.insert(0, f"Page: {page_idx}")
-
-        return "\n".join(str(f).strip() for f in fields if str(f).strip())
 
     # ========== 图片搜索 ==========
 
@@ -560,11 +447,12 @@ class MultimodalQdrantStore(QdrantVectorStore):
 # ========== 模块级单例（延迟初始化） ==========
 
 _vector_store: MultimodalQdrantStore | None = None
+_vector_store_lock = threading.Lock()
 
 
 def _create_vector_store() -> MultimodalQdrantStore:
     """创建 vector_store 实例（延迟初始化，避免 CUDA/vLLM 冲突）。"""
-    import torch
+    import torch  # pyright: ignore[reportMissingImports]
 
     from src.rag.embedding import Qwen3VLEmbeddings
 
@@ -575,15 +463,12 @@ def _create_vector_store() -> MultimodalQdrantStore:
         torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
     )
 
-    # Reranker 路径（延迟加载，首次搜索时才加载模型，节省显存）
-    reranker_path: str | None = config.RERANKER_MODEL if config.RERANKER_MODEL else None
-
     # Sparse embedding（HYBRID 模式）
     sparse_embedding = None
     retrieval_mode = RetrievalMode.DENSE
     if getattr(config, "ENABLE_HYBRID", False):
         try:
-            from langchain_qdrant import FastEmbedSparse
+            from langchain_qdrant import FastEmbedSparse  # pyright: ignore[reportMissingImports]
 
             sparse_embedding = FastEmbedSparse(model_name="Qdrant/bm25")
             retrieval_mode = RetrievalMode.HYBRID
@@ -595,19 +480,20 @@ def _create_vector_store() -> MultimodalQdrantStore:
 
     return MultimodalQdrantStore(
         client=client,
-        collection_name="papers_rag",
+        collection_name=config.QDRANT_COLLECTION_NAME,
         embedding=embeddings,
-        reranker=reranker_path,
         sparse_embedding=sparse_embedding,
         retrieval_mode=retrieval_mode,
     )
 
 
 def get_vector_store() -> MultimodalQdrantStore:
-    """获取 vector_store 单例。"""
+    """获取 vector_store 单例（线程安全）。"""
     global _vector_store
     if _vector_store is None:
-        _vector_store = _create_vector_store()
+        with _vector_store_lock:
+            if _vector_store is None:
+                _vector_store = _create_vector_store()
     return _vector_store
 
 

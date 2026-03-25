@@ -1,0 +1,16 @@
+{
+  "active_plan": "/home/wzc/Workspace/Github/ScholarRAG/.sisyphus/plans/remove-reranker-hybrid-default.md",
+  "started_at": "2026-03-25T04:53:17.307Z",
+  "session_ids": [
+    "ses_2dcfeaf90ffe6otVMaqUGaozLO",
+    "ses_2dc9f6174ffey1xLgXUDJ3z3ru",
+    "ses_2dc8845d9ffesFvexP53TiDBDv",
+    "ses_2dc885d0fffe31FaxedyP2BMA3",
+    "ses_2dc880f82ffeEsDZw233WPNT13",
+    "ses_2dc889598ffe6jlfNOYPlCkuho",
+    "ses_2dc815a81ffeHAD5JXoINi3DuU"
+  ],
+  "plan_name": "remove-reranker-hybrid-default",
+  "agent": "atlas",
+  "task_sessions": {}
+}

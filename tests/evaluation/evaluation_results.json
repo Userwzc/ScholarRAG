@@ -1,0 +1,62 @@
+{
+  "hybrid_only": {
+    "mode": "hybrid-only",
+    "total_queries": 3,
+    "top_k": 5,
+    "pdf_hit_rate": 0.0,
+    "keyword_match_rate": 1.1111111111111112,
+    "results": [
+      {
+        "question": "What is the core methodology of the DREAM paper?",
+        "pdf_hit": false,
+        "page_hit": false,
+        "keyword_hits": 7,
+        "result_count": 5
+      },
+      {
+        "question": "How does the model handle multimodal inputs?",
+        "pdf_hit": false,
+        "page_hit": false,
+        "keyword_hits": 1,
+        "result_count": 5
+      },
+      {
+        "question": "What are the experimental results on ImageNet?",
+        "pdf_hit": false,
+        "page_hit": false,
+        "keyword_hits": 2,
+        "result_count": 5
+      }
+    ]
+  },
+  "reranker": {
+    "mode": "reranker",
+    "total_queries": 3,
+    "top_k": 5,
+    "pdf_hit_rate": 0.0,
+    "keyword_match_rate": 0.7777777777777778,
+    "results": [
+      {
+        "question": "What is the core methodology of the DREAM paper?",
+        "pdf_hit": false,
+        "page_hit": false,
+        "keyword_hits": 6,
+        "result_count": 5
+      },
+      {
+        "question": "How does the model handle multimodal inputs?",
+        "pdf_hit": false,
+        "page_hit": false,
+        "keyword_hits": 0,
+        "result_count": 5
+      },
+      {
+        "question": "What are the experimental results on ImageNet?",
+        "pdf_hit": false,
+        "page_hit": false,
+        "keyword_hits": 1,
+        "result_count": 5
+      }
+    ]
+  }
+}

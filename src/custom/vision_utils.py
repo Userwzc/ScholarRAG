@@ -1,4 +1,4 @@
-"""Shared vision-preprocessing utilities used by both the embedding and reranker models."""
+"""Shared vision-preprocessing utilities for embedding models."""
 
 import os
 from typing import List, Union

@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 import os
 
 from dotenv import load_dotenv
@@ -34,9 +36,6 @@ class Config:
     # Local Qwen3-VL embedding model path (relative to project root).
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "models/Qwen3-VL-Embedding-2B")
 
-    # Local Qwen3-VL reranker model path. Set to empty string to disable reranking.
-    RERANKER_MODEL: str = os.getenv("RERANKER_MODEL", "")
-
     # LLM served via an OpenAI-compatible API endpoint.
     LLM_MODEL: str = os.getenv("LLM_MODEL", "Pro/moonshotai/Kimi-K2.5")
 
@@ -64,6 +63,9 @@ class Config:
     # When enabled, uses both dense embeddings and BM25 sparse embeddings
     # Requires: pip install fastembed
     ENABLE_HYBRID: bool = os.getenv("ENABLE_HYBRID", "false").lower() == "true"
+
+    # Qdrant collection name for storing paper chunks.
+    QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME", "papers_rag")
 
 
 config = Config()

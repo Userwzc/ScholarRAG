@@ -1,4 +1,4 @@
-"""Base class shared by Qwen3VLEmbedder and Qwen3VLReranker.
+"""Base class for Qwen3-VL embedding models.
 
 Provides:
 - Shared pixel / frame configuration constants (IMAGE_BASE_FACTOR … MAX_TOTAL_PIXELS).
@@ -7,8 +7,7 @@ Provides:
 - ``_build_media_content`` — convert normalised lists to Qwen-VL content dicts.
 - ``_safe_process_vision_info`` — wraps ``process_vision_info`` with a NULL fallback.
 
-Subclasses define their own ``MAX_LENGTH`` and implement the task-specific
-inference logic (pooling for embedding, yes/no head for reranking).
+Subclasses define their own ``MAX_LENGTH`` and implement task-specific inference logic.
 """
 
 from __future__ import annotations
@@ -24,9 +23,8 @@ logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared pixel / frame constants
-# These values are identical between the embedder and reranker; only
-# MAX_LENGTH differs (8 192 for embedding, 10 240 for reranking) and is
-# therefore left for subclasses to define.
+# These values are used by the embedder.
+# MAX_LENGTH is left for subclasses to define.
 # ---------------------------------------------------------------------------
 
 IMAGE_BASE_FACTOR: int = 16

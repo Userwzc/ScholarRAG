@@ -1,5 +1,7 @@
 """LangGraph Agent tools for paper RAG."""
 
+# pyright: reportMissingImports=false
+
 import hashlib
 import os
 from typing import Any
@@ -400,11 +402,12 @@ def search_papers(
     )
 
     try:
-        results = get_vector_store().similarity_search_with_rerank(
+        vector_store = get_vector_store()
+        results = vector_store.similarity_search(
             query,
             k=top_k,
             filter=qdrant_filter,
-            candidate_k=max(top_k * 8, 24),
+            candidate_k=top_k,
         )
     except Exception as exc:
         logger.error("Vector store search failed: %s", exc)
@@ -441,7 +444,7 @@ def search_visuals(
     heading_contains: str = "",
     figure_or_table_label: str = "",
     top_k: int = config.RAG_TOP_K,
-) -> str:
+) -> dict:
     """Search specifically for figure and table evidence relevant to a question.
 
     Prefer this tool when the question mentions figures, tables, experiments,
@@ -467,12 +470,13 @@ def search_visuals(
             page_end=page_end,
         )
         try:
-            results = get_vector_store().similarity_search_with_rerank(
+            vector_store = get_vector_store()
+            results = vector_store.similarity_search(
                 visual_query,
                 k=max(4, top_k * 3),
                 filter=qdrant_filter,
                 score_threshold=0.0,
-                candidate_k=max(top_k * 10, 20),
+                candidate_k=top_k,
             )
         except Exception as exc:
             logger.error("Visual search failed for %s: %s", chunk_type, exc)
@@ -517,7 +521,7 @@ def search_visuals(
 
 
 @tool("get_page_context", args_schema=PageContextInput)
-def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> str:
+def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> dict:
     """Fetch all chunk types from a specific paper page for local context expansion.
 
     Use this after a search tool identifies a promising page and you want nearby

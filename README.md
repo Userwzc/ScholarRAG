@@ -1,96 +1,300 @@
 # ScholarRAG
 
-ScholarRAG is a cutting-edge **Multimodal RAG (Retrieval-Augmented Generation)** system designed specifically for academic research. It enables users to upload PDF papers and interact with them through an intelligent agent that understands not just text, but also **complex tables, figures, and mathematical formulas**.
+> 面向学术文献的多模态检索增强生成（RAG）系统
 
-## ✨ Key Features
-
-### 🧠 Advanced Agentic Intelligence
-- **Powered by LangGraph**: A robust state-machine based agent that autonomously plans research steps, executes tool calls, and synthesizes findings.
-- **Multimodal Reasoning**: The agent can "see" and analyze visual evidence (figures/tables) retrieved from papers to provide more comprehensive answers.
-- **Dynamic Tooling**: Includes semantic search, targeted visual retrieval, and page-level context expansion.
-
-### 📄 Intelligent PDF Ingestion
-- **MinerU Integration**: High-fidelity parsing of academic PDFs into clean Markdown, extracting text, images, and cross-referencing equations.
-- **Unified Service Layer**: Centralized ingestion pipeline ensures consistent processing across CLI and Web interfaces.
-
-### 🚀 Performance & Optimization
-- **VRAM Optimized**: Smart model loading using `bfloat16`/`float16` precision, reducing GPU memory footprint by nearly **50%** (from 19GB to ~10GB).
-- **Repository Pattern**: Clean data access layer isolating business logic from the underlying Qdrant vector database.
-
-### 🔍 Multimodal Embedding
-- **LangChain-Compatible**: Implements `langchain_core.embeddings.Embeddings` interface for seamless integration.
-- **Hybrid Input**: Supports text, image, and mixed inputs through a unified API.
-- **Async Support**: Built-in async methods (`aembed_query`, `aembed_documents`) for non-blocking operations.
-
-### 🎯 Advanced Retrieval
-- **LangChain QdrantVectorStore**: Built on LangChain's official Qdrant integration with extended multimodal support.
-- **Hybrid Search**: Optional dense + sparse (BM25) retrieval for improved recall.
-- **Reranking**: Qwen3-VL reranker for relevance scoring.
-- **MMR Support**: Maximal Marginal Relevance for diverse result sets.
-
-### 💻 Modern Web Experience
-- **Immersive Chat**: A full-page, fixed-bottom chat interface designed for deep focus sessions.
-- **Collapsible Thought Process**: Watch the agent's research steps in real-time through an elegant, interactive UI component.
-- **LaTeX Support**: Native rendering of mathematical formulas using KaTeX.
-- **Rich Citations**: Instant links to source papers and specific page numbers for every claim.
+ScholarRAG 是一个专为学术研究者设计的**多模态 RAG 系统**。它不仅能理解和检索论文文本，还能解析**复杂的表格、图表和数学公式**，为研究者提供深度、智能的文献交互体验。
 
 ---
 
-## 🛠️ Architecture
+## 🌟 核心特性
+
+### 🤖 智能代理引擎
+- **LangGraph 驱动**：基于状态机的健壮代理架构，能够自主规划研究步骤、执行工具调用、综合研究结果
+- **多模态推理**：代理可以"看见"并分析论文中的视觉证据（图表/表格），提供更全面的答案
+- **动态工具链**：包含语义搜索、视觉检索、页面上下文扩展等多种工具
+
+### 📄 智能 PDF 解析
+- **MinerU 集成**：高精度学术 PDF 解析，提取文本、图片和公式交叉引用
+- **统一服务层**：集中的摄取管道，确保 CLI 和 Web 接口的一致性处理
+
+### 🔍 多模态嵌入与检索
+- **Qwen3-VL 嵌入**：基于 Qwen3-VL 的多模态嵌入模型，支持文本、图像混合输入
+- **LangChain 兼容**：实现 `langchain_core.embeddings.Embeddings` 接口，无缝集成
+- **混合检索**：支持稠密向量 + 稀疏 BM25 检索（可选）
+- **MMR 支持**：最大边际相关性，确保结果多样性
+
+### 💻 现代化 Web 界面
+- **沉浸式聊天**：全屏专注模式，支持 LaTeX 公式渲染（KaTeX）
+- **思维过程可视化**：可折叠的推理过程展示，实时观察代理的研究步骤
+- **丰富的引用**：每个回答都附带来源论文和具体页码链接
+- **PDF 阅读器集成**：内置 PDF 查看器，支持直接跳转到引用页面
+
+### ⚡ 性能优化
+- **VRAM 优化**：使用 `bfloat16`/`float16` 精度加载模型，显存占用降低约 **50%**
+- **线程安全的存储库模式**：通过 `get_vector_store()` 延迟初始化单例，隔离业务逻辑与 Qdrant 向量数据库，并支持并发访问
+- **异步支持**：内置异步方法，实现非阻塞操作
+
+### 🛡️ 安全与稳定性
+- **通用错误消息**：对外返回简洁错误信息，内部保留详细日志，避免暴露实现细节
+
+---
+
+## 🏗️ 系统架构
 
 ```
 ScholarRAG/
-├── main.py              # Unified CLI entry point
-├── api/                 # FastAPI Backend
-│   ├── services/       # Decoupled business logic (Paper/Query services)
-│   └── routes/        # RESTful API endpoints
-├── frontend/           # Modern React + TypeScript SPA
-│   ├── src/components/ # Reusable UI (ThoughtProcess, etc.)
-│   └── src/pages/     # Immersive View components
+├── main.py                    # CLI 入口（add/query/delete 子命令）
+├── api/                       # FastAPI 后端
+│   ├── main.py               # 应用工厂、CORS、路由挂载
+│   ├── config.py             # API 配置（主机、端口、上传目录）
+│   ├── schemas.py              # Pydantic 请求/响应模型
+│   ├── routes/                # 端点处理器
+│   │   ├── papers.py         # 论文管理接口
+│   │   ├── query.py            # 查询接口
+│   │   └── conversations.py    # 对话历史接口
+│   └── services/              # 业务逻辑层
+│       ├── paper_service.py    # 论文服务
+│       ├── query_service.py    # 查询服务
+│       └── conversation_service.py
+├── frontend/                  # React + TypeScript SPA
+│   ├── src/
+│   │   ├── components/        # 可复用 UI 组件
+│   │   ├── pages/             # 路由级视图
+│   │   ├── hooks/             # 自定义 React Hooks
+│   │   ├── stores/            # Zustand 状态管理
+│   │   └── lib/               # 工具函数
+│   └── package.json
+├── config/
+│   └── settings.py            # 配置数据类，读取 .env
 ├── src/
-│   ├── core/          # Shared Business Logic (Ingestion Service)
-│   ├── agent/         # LangGraph state machine and tools
-│   ├── custom/        # Qwen3-VL specific model wrappers
-│   ├── rag/           # Vector Store (Qdrant) and Repository logic
-│   └── ingest/        # MinerU-based PDF parsing engine
-└── config/            # Centralized Pydantic-based configuration
+│   ├── core/                  # 共享业务逻辑
+│   │   └── ingestion.py       # 摄取服务
+│   ├── agent/                 # LangGraph 智能体
+│   │   ├── graph.py           # 状态机定义
+│   │   ├── tools.py           # 工具定义
+│   │   ├── langgraph_agent.py # 代理实现
+│   │   └── multimodal_answerer.py
+│   ├── custom/                # Qwen3-VL 模型封装
+│   │   ├── qwen3_vl_embedding.py
+│   │   └── vision_utils.py
+│   ├── ingest/                # MinerU 解析器
+│   │   ├── mineru_parser.py
+│   │   └── paper_manager.py
+│   ├── rag/                   # 向量存储与检索
+│   │   ├── vector_store.py    # Qdrant 多模态存储
+│   │   └── embedding.py
+│   └── utils/
+│       └── logger.py          # 日志工具
+└── data/parsed/               # MinerU 输出目录（gitignored）
 ```
 
 ---
 
-## 🚦 Quick Start
+## 🚀 快速开始
 
-### Prerequisites
-- Python 3.12+
-- Qdrant (Running locally or in cloud)
-- NVIDIA GPU (RTX 2080 Ti or higher recommended)
+### 环境要求
 
-### Setup
-1. **Clone & Install**
-   ```bash
-   conda create -n scholarrag python=3.12
-   conda activate scholarrag
-   pip install -r requirements.txt
-   ```
-2. **Configure**
-   ```bash
-   cp .env.example .env
-   # Set your OPENAI_API_KEY and model paths in .env
-   ```
+- **Python**: 3.12+
+- **Node.js**: 18+（前端开发）
+- **Qdrant**: 本地或云端向量数据库
+- **GPU**: NVIDIA GPU（推荐 RTX 2080 Ti 或更高）
 
-### Execution
-- **Run CLI**: `python main.py query "What is the core methodology of the DREAM paper?"`
-- **Run Backend**: `uvicorn api.main:app --host 0.0.0.0 --port 8000`
-- **Run Frontend**: `cd frontend && npm run dev`
+### 1. 克隆与安装
+
+```bash
+# 克隆仓库
+git clone <repository-url>
+cd ScholarRAG
+
+# 创建 Python 环境
+conda create -n scholarrag python=3.12
+conda activate scholarrag
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 安装 MinerU（PDF 解析器）
+pip install -U magic-pdf[full]
+```
+
+### 2. 配置环境
+
+```bash
+# 复制示例配置文件
+cp .env.example .env
+
+# 编辑 .env 文件，配置以下关键项：
+# - OPENAI_API_KEY: 你的 OpenAI API 密钥
+# - OPENAI_API_BASE: API 基础地址（默认: http://localhost:8000/v1）
+# - EMBEDDING_MODEL: Qwen3-VL 嵌入模型路径
+# - QDRANT_HOST, QDRANT_PORT: Qdrant 服务地址
+# - QDRANT_COLLECTION_NAME: Qdrant 集合名（默认: scholarrag）
+# - LLM_MODEL: 语言模型名称（默认: Pro/moonshotai/Kimi-K2.5）
+```
+
+### 3. 启动服务
+
+**方式一：命令行（CLI）**
+
+```bash
+# 添加论文到向量库
+python main.py add path/to/paper.pdf
+
+# 查询论文
+python main.py query "这篇论文的核心方法是什么？"
+
+# 删除论文
+python main.py delete paper_name
+```
+
+**方式二：Web 服务**
+
+```bash
+# 启动后端（终端 1）
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+
+# 启动前端（终端 2）
+cd frontend
+npm install
+npm run dev
+
+# 访问 http://localhost:5173
+```
 
 ---
 
-## 🧪 Tech Stack
-- **AI/ML**: [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain](https://github.com/langchain-ai/langchain), [Qwen3-VL](https://github.com/QwenLM/Qwen-VL), Transformers, PyTorch.
-- **Database**: [Qdrant](https://qdrant.tech/) (Vector Database) with LangChain integration.
-- **Backend**: FastAPI, Pydantic v2.
-- **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, KaTeX.
-- **Parsing**: [MinerU](https://github.com/opendatalab/MinerU).
+## 📖 使用指南
 
-## 📄 License
-MIT License.
+### CLI 命令
+
+| 命令 | 描述 | 示例 |
+|------|------|------|
+| `add <pdf_path>` | 摄取 PDF 到向量库 | `python main.py add ./papers/dream.pdf` |
+| `query <question>` | 向 RAG 代理提问 | `python main.py query "什么是 DREAM 方法的核心思想？"` |
+| `delete <pdf_name>` | 删除论文 | `python main.py delete dream` |
+
+### API 端点
+
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| POST | `/api/papers/upload` | 上传 PDF |
+| GET | `/api/papers` | 列出所有论文 |
+| DELETE | `/api/papers/{name}` | 删除论文 |
+| POST | `/api/query/stream` | 流式查询（SSE） |
+| GET | `/api/conversations` | 获取对话历史 |
+| DELETE | `/api/conversations/{id}` | 删除对话 |
+
+### 环境变量配置
+
+| 变量 | 描述 | 默认值 |
+|------|------|--------|
+| `OPENAI_API_BASE` | OpenAI 兼容 API 地址 | `http://localhost:8000/v1` |
+| `OPENAI_API_KEY` | API 密钥 | `""` |
+| `LLM_MODEL` | 语言模型名称 | `Pro/moonshotai/Kimi-K2.5` |
+| `EMBEDDING_MODEL` | 嵌入模型路径 | `models/Qwen3-VL-Embedding-2B` |
+| `QDRANT_HOST` | Qdrant 主机 | `localhost` |
+| `QDRANT_PORT` | Qdrant 端口 | `6333` |
+| `QDRANT_COLLECTION_NAME` | Qdrant 集合名 | `scholarrag` |
+| `RAG_TOP_K` | 检索 top-k | `5` |
+| `SCORE_THRESHOLD` | 相似度阈值 | `0.3` |
+| `AGENT_MAX_ITERATIONS` | 代理最大迭代次数 | `10` |
+| `ENABLE_HYBRID` | 启用混合检索 | `false` |
+| `MINERU_BACKEND` | MinerU 后端 | `pipeline` |
+
+---
+
+## 🛠️ 技术栈
+
+### AI/ML
+- [LangGraph](https://github.com/langchain-ai/langgraph) - 智能体编排框架
+- [LangChain](https://github.com/langchain-ai/langchain) - LLM 应用框架
+- [Qwen3-VL](https://github.com/QwenLM/Qwen-VL) - 多模态视觉语言模型
+- [Transformers](https://github.com/huggingface/transformers) - 预训练模型库
+- PyTorch - 深度学习框架
+
+### 数据库与存储
+- [Qdrant](https://qdrant.tech/) - 向量数据库
+
+### 后端
+- FastAPI - 高性能 Web 框架
+- Pydantic v2 - 数据验证
+
+### 前端
+- React 19 - UI 框架
+- TypeScript - 类型安全
+- Tailwind CSS - 样式框架
+- shadcn/ui - UI 组件库
+- KaTeX - LaTeX 公式渲染
+- Zustand - 状态管理
+
+### PDF 解析
+- [MinerU](https://github.com/opendatalab/MinerU) - 高质量 PDF 解析工具
+
+---
+
+## 🧪 开发指南
+
+### Python 代码风格
+
+```bash
+# 代码检查与格式化
+ruff check .              # 检查
+ruff check --fix .       # 自动修复
+ruff format .            # 格式化
+
+# 测试
+pytest                   # 运行所有测试
+pytest -x                # 遇到第一个失败停止
+```
+
+### 前端开发
+
+```bash
+cd frontend
+
+# 开发服务器
+npm run dev              # http://localhost:5173
+
+# 生产构建
+npm run build
+
+# 代码检查
+npm run lint
+```
+
+### 项目约定
+
+- **导入顺序**: 标准库 → 第三方 → 本地（每组之间空行）
+- **类型注解**: 所有函数签名必须包含参数和返回类型
+- **命名规范**:
+  - 类: `PascalCase`
+  - 函数: `snake_case`
+  - 常量: `UPPER_SNAKE_CASE`
+  - 私有方法: `_leading_underscore`
+- **错误处理**: 捕获具体异常，对外返回通用错误消息，详细信息仅写入日志，避免裸 `except:`
+- **日志**: 使用 `get_logger(__name__)`，禁用 `print()`
+
+---
+
+## ⚠️ 注意事项
+
+1. **CUDA/vLLM 冲突**: 模块级别不要导入 `vector_store`，应在函数内部调用 `get_vector_store()`（特别是在 MinerU 解析完成后）
+2. **向量存储**: `get_vector_store()` 是线程安全的单例入口；检索统一使用 `similarity_search()`，不要使用旧的 `search()` / `client.search()` 方法
+3. **Idempotent 写入**: 使用 `uuid.uuid5` 生成点 ID，确保相同内容生成相同 ID
+4. **图像路径**: 存储图像时同时探测 `auto/<img_path>` 和 `auto/images/<img_path>`
+
+---
+
+## 📄 许可证
+
+MIT License © ScholarRAG Team
+
+---
+
+<div align="center">
+
+**[⬆ 返回顶部](#scholarrag)**
+
+Built with ❤️ for Academic Research
+
+</div>

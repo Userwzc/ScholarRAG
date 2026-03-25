@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 from fastapi import APIRouter, File, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse
@@ -13,6 +14,7 @@ from api.schemas import (
 from api.services import paper_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload", response_model=PaperUploadResponse)
@@ -31,7 +33,8 @@ async def upload_paper(file: UploadFile = File(...)):
 
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to upload paper: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to upload paper")
 
 
 @router.get("", response_model=PaperListResponse)
@@ -40,7 +43,8 @@ async def list_papers():
         papers = paper_service.list_papers()
         return PaperListResponse(papers=papers)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to list papers: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to list papers")
 
 
 @router.get("/{pdf_name}", response_model=PaperDetail)
@@ -61,7 +65,8 @@ async def delete_paper(pdf_name: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to delete paper: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete paper")
 
 
 @router.get("/{pdf_name}/chunks", response_model=ChunkListResponse)
@@ -74,7 +79,8 @@ async def get_paper_chunks(
     try:
         return paper_service.get_paper_chunks(pdf_name, page, limit, type)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to get paper chunks: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get paper chunks")
 
 
 @router.get("/{pdf_name}/pdf")

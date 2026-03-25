@@ -4,6 +4,7 @@
 处理用户查询请求，支持流式响应和多轮对话上下文。
 """
 
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +15,7 @@ from api.schemas import MessageCreate, QueryRequest
 from api.services import conversation_service, query_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("")
@@ -50,4 +52,5 @@ async def query(request: QueryRequest):
             media_type="text/event-stream",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Query processing failed: %s", e)
+        raise HTTPException(status_code=500, detail="Query processing failed")
