@@ -37,6 +37,22 @@ ScholarRAG 是一个专为学术研究者设计的**多模态 RAG 系统**。它
 ### 🛡️ 安全与稳定性
 - **通用错误消息**：对外返回简洁错误信息，内部保留详细日志，避免暴露实现细节
 
+### 📊 版本管理
+- **自动版本控制**：重新索引论文时自动创建新版本，保留历史记录
+- **当前版本过滤**：默认只检索当前版本的 chunks，避免历史版本干扰
+- **版本历史查看**：前端界面展示所有版本，支持查看历史版本详情
+
+### ⚡ 异步上传与任务管理
+- **异步处理**：大文件上传不阻塞，立即返回任务 ID
+- **实时进度**：通过轮询获取处理进度（解析、嵌入、存储）
+- **任务重试**：失败任务支持一键重试，自动清理后重新处理
+- **持久化状态**：所有任务状态保存在 SQLite，重启后不会丢失
+
+### 🧪 离线评估流水线
+- **6 种评估指标**：检索命中率、页面命中率、关键词匹配率、引用覆盖率、版本泄漏率、失败查询率
+- **阈值门禁**：可配置指标阈值，未通过时 CI 自动失败
+- **JSON 报告**：生成机器可读的评估报告，支持历史对比
+
 ---
 
 ## 🏗️ 系统架构
@@ -83,9 +99,21 @@ ScholarRAG/
 │   ├── rag/                   # 向量存储与检索
 │   │   ├── vector_store.py    # Qdrant 多模态存储
 │   │   └── embedding.py
-│   └── utils/
-│       └── logger.py          # 日志工具
-└── data/parsed/               # MinerU 输出目录（gitignored）
+│   ├── utils/
+│   │   └── logger.py          # 日志工具
+│   └── jobs/                  # 任务与版本管理
+│       ├── job_manager.py     # 异步任务管理
+│       └── version_manager.py # 版本控制管理
+├── tests/
+│   └── evaluation/           # 离线评估流水线
+│       ├── runner.py
+│       ├── dataset.json
+│       └── thresholds.json
+├── data/                      # 数据目录（gitignored）
+│   ├── parsed/               # MinerU 输出目录
+│   ├── uploads/              # 上传文件临时目录
+│   └── scholarrag.db         # SQLite 数据库（任务/版本持久化）
+└── .github/workflows/        # GitHub Actions CI/CD
 ```
 
 ---
@@ -177,8 +205,14 @@ npm run dev
 
 | 方法 | 端点 | 描述 |
 |------|------|------|
-| POST | `/api/papers/upload` | 上传 PDF |
+| POST | `/api/papers/upload` | 上传 PDF（同步） |
+| POST | `/api/papers/uploads` | 异步上传 PDF |
+| GET | `/api/papers/uploads` | 获取上传任务列表 |
+| GET | `/api/papers/uploads/{job_id}` | 获取任务详情 |
+| POST | `/api/papers/uploads/{job_id}/retry` | 重试失败任务 |
 | GET | `/api/papers` | 列出所有论文 |
+| GET | `/api/papers/{pdf_name}/versions` | 获取论文版本列表 |
+| POST | `/api/papers/{pdf_name}/reindex` | 重新索引论文 |
 | DELETE | `/api/papers/{name}` | 删除论文 |
 | POST | `/api/query/stream` | 流式查询（SSE） |
 | GET | `/api/conversations` | 获取对话历史 |
@@ -214,6 +248,7 @@ npm run dev
 
 ### 数据库与存储
 - [Qdrant](https://qdrant.tech/) - 向量数据库
+- [SQLite](https://sqlite.org/) - 任务队列与版本持久化
 
 ### 后端
 - FastAPI - 高性能 Web 框架
@@ -229,6 +264,48 @@ npm run dev
 
 ### PDF 解析
 - [MinerU](https://github.com/opendatalab/MinerU) - 高质量 PDF 解析工具
+
+---
+
+## 🔄 CI/CD
+
+项目使用 GitHub Actions 进行持续集成：
+
+```yaml
+# .github/workflows/ci.yml
+- 后端代码检查 (ruff)
+- 后端测试 (pytest)
+- 评估流水线 (evaluation runner)
+- 前端构建 (npm run build)
+```
+
+每次提交到 main 分支或创建 PR 时自动运行。
+
+---
+
+## 🧪 评估
+
+### 运行离线评估
+
+```bash
+python -m tests.evaluation.runner \
+  --dataset tests/evaluation/dataset.json \
+  --output reports/evaluation_report.json \
+  --thresholds-file tests/evaluation/thresholds.json
+```
+
+### 评估指标
+
+- **Retrieval Hit Rate**: 检索命中率
+- **Page Hit Rate**: 页面命中率
+- **Keyword Match Rate**: 关键词匹配率
+- **Citation Coverage Rate**: 引用覆盖率
+- **Current Version Leak Rate**: 当前版本泄漏率
+- **Failed Query Rate**: 失败查询率
+
+### 阈值配置
+
+在 `tests/evaluation/thresholds.json` 中配置各项指标的阈值。未达标的指标会导致 CI 失败。
 
 ---
 
