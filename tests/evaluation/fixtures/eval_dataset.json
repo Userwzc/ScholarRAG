@@ -1,0 +1,37 @@
+{
+  "name": "scholarrag_regression",
+  "version": "1.0",
+  "description": "Default regression dataset for ScholarRAG offline evaluation",
+  "queries": [
+    {
+      "question": "What is the core methodology of the DREAM paper?",
+      "expected_pdf": "dream",
+      "expected_pages": [2, 3],
+      "keywords": ["methodology", "approach", "framework"]
+    },
+    {
+      "question": "How does the model handle multimodal inputs?",
+      "expected_pdf": "dream",
+      "expected_pages": [2, 4],
+      "keywords": ["multimodal", "input", "fusion"]
+    },
+    {
+      "question": "What are the experimental results?",
+      "expected_pdf": "dream",
+      "expected_pages": [3, 5],
+      "keywords": ["results", "accuracy", "benchmark"]
+    },
+    {
+      "question": "Describe the attention mechanism in transformers.",
+      "expected_pdf": "attention",
+      "expected_pages": [1, 2],
+      "keywords": ["attention", "transformer", "mechanism"]
+    },
+    {
+      "question": "What is BERT's pre-training objective?",
+      "expected_pdf": "bert",
+      "expected_pages": [2, 3],
+      "keywords": ["bert", "pre-training", "objective"]
+    }
+  ]
+}

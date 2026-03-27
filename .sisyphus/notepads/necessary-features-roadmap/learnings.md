@@ -193,3 +193,45 @@ tests/
 - Extend Source interface with optional provenance fields: chunk_id, paper_version, heading, supporting_text
 - Update loadConversationMessages mapping to include new fields
 - Backend MessageResponse.sources uses SourceSchema which already has these fields
+
+## Task 8 Learning: Offline Evaluation Runner Design
+
+- Evaluation runner should be executable as a module: `python -m tests.evaluation.runner`
+- Use dataclasses for all evaluation data structures (EvalQuery, EvalDataset, QueryResult, EvaluationMetrics, EvaluationReport)
+- Metrics should be deterministic and cheap: retrieval_hit_rate, page_hit_rate, keyword_match_rate, citation_coverage_rate, current_version_leak_rate, failed_query_rate
+- Exit codes: 0 for success, 1 for threshold failure, 2 for runtime errors
+- Support CLI args for dataset path, output path, top_k, and threshold overrides
+
+## Task 8 Learning: Version-Aware Metrics
+
+- `current_version_leak_rate` detects when non-current versions leak into default retrieval results
+- Check `is_current=False` in retrieved chunk metadata to detect leaks
+- Zero tolerance (0.0) is the default threshold for version leaks
+
+## Task 8 Learning: Provenance-Aware Metrics
+
+- `citation_coverage_rate` checks if retrieved chunks have required provenance fields
+- Required fields: pdf_name, page, type
+- Optional fields: chunk_id, paper_version, heading
+- Empty pdf_name should fail citation coverage check
+
+## Task 8 Learning: Threshold Configuration
+
+- Default thresholds are conservative: retrieval_hit_rate=0.5, page_hit_rate=0.3, keyword_match_rate=0.3
+- Citation coverage threshold is high (0.8) to ensure quality
+- Version leak threshold is zero (0.0) - no tolerance for stale data
+- Failed query rate threshold is 0.1 to allow some failures
+
+## Task 8 Learning: JSON Report Structure
+
+- Report includes: timestamp, dataset_name, dataset_version, mode, top_k, metrics, thresholds, verdict
+- All metrics are machine-readable for CI consumption
+- Verdict includes pass/fail status and list of specific failures
+- Query results are included for debugging
+
+## Task 8 Learning: Dataset Fixture Pattern
+
+- Default dataset is embedded in code for reproducibility
+- External datasets can be loaded from JSON files
+- Dataset includes: name, version, description, queries
+- Each query has: question, expected_pdf, expected_pages, keywords, expected_chunk_ids, expected_version

@@ -116,7 +116,7 @@ def print_metrics(metrics: dict[str, Any]) -> None:
     print(f"Top-K: {metrics['top_k']}")
     print(f"PDF 命中率: {metrics['pdf_hit_rate']:.2%}")
     print(f"关键词匹配率: {metrics['keyword_match_rate']:.2%}")
-    print(f"\n详细结果:")
+    print("\n详细结果:")
     for result in metrics["results"]:
         print(f"  - {result['question'][:50]}...")
         print(f"    PDF命中: {result['pdf_hit']}, 关键词命中: {result['keyword_hits']}")

@@ -1,0 +1,31 @@
+Evaluation Threshold Failure Report
+============================================================
+
+Timestamp: 2026-03-27T12:21:23.053799+00:00
+Dataset: scholarrag_regression v1.0
+
+Metrics:
+  Retrieval Hit Rate: 0.00%
+  Page Hit Rate: 0.00%
+  Keyword Match Rate: 0.00%
+  Citation Coverage Rate: 0.00%
+  Current Version Leak Rate: 100.00%
+  Failed Query Rate: 33.33%
+
+Thresholds:
+  Retrieval Hit Rate >= 50.00%
+  Page Hit Rate >= 30.00%
+  Keyword Match Rate >= 30.00%
+  Citation Coverage Rate >= 80.00%
+  Current Version Leak Rate <= 0.00%
+  Failed Query Rate <= 10.00%
+
+Verdict: FAILED
+
+Failures:
+  - retrieval_hit_rate 0.00% < 50.00%
+  - page_hit_rate 0.00% < 30.00%
+  - keyword_match_rate 0.00% < 30.00%
+  - citation_coverage_rate 0.00% < 80.00%
+  - current_version_leak_rate 100.00% > 0.00%
+  - failed_query_rate 33.33% > 10.00%

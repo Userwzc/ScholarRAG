@@ -9,7 +9,8 @@
     "ses_2d12eea0bffexrb2zLwrROa9ez",
     "ses_2d12601c5ffe8G2Q6KrkObhSP2",
     "ses_2d0e67287ffex1hOwaxemVrTmn",
-    "ses_2d0d9963fffelhsEJWdNQ8ZadR"
+    "ses_2d0d9963fffelhsEJWdNQ8ZadR",
+    "ses_2d0cb9f91ffeauNOYMjnjhu8mq"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -76,6 +77,15 @@
       "agent": "Sisyphus-Junior",
       "category": "visual-engineering",
       "updated_at": "2026-03-27T12:08:54.939Z"
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "Build an offline evaluation runner with version-aware and provenance-aware metrics",
+      "session_id": "ses_2d0cb9f91ffeauNOYMjnjhu8mq",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-03-27T12:23:39.139Z"
     }
   }
 }

@@ -416,7 +416,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(frontend): surface ingestion jobs and citation deep links` | Files: `frontend/src/pages/PapersPage.tsx`, `frontend/src/pages/QueryPage.tsx`, `frontend/src/pages/PaperReaderPage.tsx`, `frontend/src/lib/api.ts`, related components/tests
 
-- [ ] 8. Build an offline evaluation runner with version-aware and provenance-aware metrics
+- [x] 8. Build an offline evaluation runner with version-aware and provenance-aware metrics
 
   **What to do**: Expand the current `tests/evaluation/retrieval_eval.py` script into a stable offline evaluation pipeline driven by fixture datasets and machine-readable JSON reports. Keep the default metric set deterministic and cheap: retrieval hit rate, page hit rate, keyword match rate, citation coverage rate, current-version leak rate, and failed-query rate. Make the runner CI-friendly, emit non-zero exit status when thresholds are missed, and store artifacts in a predictable path.
   **Must NOT do**: Do not require online judge models, LangSmith, or paid APIs for the default pipeline. Do not make evaluation results depend on nondeterministic timestamps/random seeds. Do not silently pass if no papers/dataset are available.
