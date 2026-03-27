@@ -142,7 +142,7 @@ conda activate scholarrag
 pip install -r requirements.txt
 
 # 安装 MinerU（PDF 解析器）
-pip install -U magic-pdf[full]
+pip install -U mineru[all]
 ```
 
 ### 2. 配置环境
