@@ -24,6 +24,31 @@ logger = get_logger(__name__)
 _NS = uuid.UUID("c0ffeeee-dead-beef-cafe-000000000000")
 
 
+def _with_current_filter(
+    filter_obj: models.Filter | None,
+    current_only: bool,
+) -> models.Filter | None:
+    if not current_only:
+        return filter_obj
+
+    current_condition = models.FieldCondition(
+        key="metadata.is_current",
+        match=models.MatchValue(value=True),
+    )
+
+    if filter_obj is None:
+        return models.Filter(must=[current_condition])
+
+    must_conditions = list(filter_obj.must or [])
+    must_conditions.append(current_condition)
+    return models.Filter(
+        must=must_conditions,
+        should=filter_obj.should,
+        must_not=filter_obj.must_not,
+        min_should=filter_obj.min_should,
+    )
+
+
 def _content_uuid(*parts: str) -> str:
     """确定性 UUIDv5，用于幂等写入。
 
@@ -132,6 +157,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
             ids = [
                 _content_uuid(
                     m.get("pdf_name", ""),
+                    str(m.get("paper_version", "")),
                     str(m.get("page_idx", "")),
                     m.get("chunk_type", ""),
                     inp.get("text", "") if isinstance(inp, dict) else str(inp),
@@ -216,6 +242,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
         filter: models.Filter | None = None,
         score_threshold: float = 0.0,
         candidate_k: int | None = None,
+        current_only: bool = True,
     ) -> list[dict[str, Any]]:
         """默认使用 hybrid retrieval 的向量搜索，返回原始 payload 格式。
 
@@ -233,11 +260,13 @@ class MultimodalQdrantStore(QdrantVectorStore):
         if fetch_k is None:
             fetch_k = k
 
+        qdrant_filter = _with_current_filter(filter, current_only=current_only)
+
         # 调用父类搜索
         results = self.similarity_search_with_score(
             query,
             k=fetch_k,
-            filter=filter,
+            filter=qdrant_filter,
             score_threshold=score_threshold if score_threshold > 0 else None,
         )
 
@@ -328,10 +357,71 @@ class MultimodalQdrantStore(QdrantVectorStore):
 
     # ========== 元数据操作 ==========
 
+    def mark_paper_chunks_non_current(
+        self,
+        pdf_name: str,
+        keep_version: int,
+        batch_size: int = 256,
+    ) -> int:
+        selector = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.pdf_name",
+                    match=models.MatchValue(value=pdf_name),
+                )
+            ]
+        )
+
+        updated_count = 0
+        offset: Any | None = None
+        while True:
+            points, next_offset = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=selector,
+                limit=batch_size,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+
+            if not points:
+                break
+
+            updated_points: list[models.PointStruct] = []
+            for point in points:
+                payload = dict(point.payload or {})
+                metadata = dict(payload.get(self.metadata_payload_key, {}) or {})
+
+                if metadata.get("paper_version") == keep_version:
+                    continue
+                if metadata.get("is_current") is False:
+                    continue
+
+                metadata["is_current"] = False
+                payload[self.metadata_payload_key] = metadata
+                updated_points.append(
+                    models.PointStruct(
+                        id=point.id,
+                        vector=point.vector,
+                        payload=payload,
+                    )
+                )
+
+            if updated_points:
+                self.client.upsert(self.collection_name, points=updated_points)
+                updated_count += len(updated_points)
+
+            if next_offset is None:
+                break
+            offset = next_offset
+
+        return updated_count
+
     def fetch_by_metadata(
         self,
         filter: models.Filter,
         limit: int = 20,
+        current_only: bool = True,
     ) -> list[dict[str, Any]]:
         """按元数据获取 points（无向量搜索）。
 
@@ -342,9 +432,10 @@ class MultimodalQdrantStore(QdrantVectorStore):
         Returns:
             [{"payload": dict}, ...]
         """
+        qdrant_filter = _with_current_filter(filter, current_only=current_only)
         points, _ = self.client.scroll(
             collection_name=self.collection_name,
-            scroll_filter=filter,
+            scroll_filter=qdrant_filter,
             limit=limit,
             with_payload=True,
             with_vectors=False,
@@ -356,6 +447,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
         filter: models.Filter | None = None,
         limit: int = 10000,
         offset: Any | None = None,
+        current_only: bool = True,
     ) -> tuple[list[dict[str, Any]], Any | None]:
         """分页滚动获取 chunks。
 
@@ -367,9 +459,10 @@ class MultimodalQdrantStore(QdrantVectorStore):
         Returns:
             (results, next_offset)
         """
+        qdrant_filter = _with_current_filter(filter, current_only=current_only)
         points, next_offset = self.client.scroll(
             collection_name=self.collection_name,
-            scroll_filter=filter,
+            scroll_filter=qdrant_filter,
             limit=limit,
             offset=offset,
             with_payload=True,
@@ -418,17 +511,27 @@ class MultimodalQdrantStore(QdrantVectorStore):
         )
         return self.delete_by_metadata(filter)
 
-    def get_all_papers(self) -> list[dict[str, Any]]:
+    def get_all_papers(
+        self,
+        filter: models.Filter | None = None,
+        current_only: bool = True,
+    ) -> list[dict[str, Any]]:
         """获取所有 chunks 的 payload（用于提取论文列表）。"""
+        qdrant_filter = _with_current_filter(filter, current_only=current_only)
         points, _ = self.client.scroll(
             collection_name=self.collection_name,
+            scroll_filter=qdrant_filter,
             limit=10000,
             with_payload=True,
             with_vectors=False,
         )
         return [{"payload": p.payload} for p in points]
 
-    def count_chunks(self, filter: models.Filter | None = None) -> int:
+    def count_chunks(
+        self,
+        filter: models.Filter | None = None,
+        current_only: bool = True,
+    ) -> int:
         """统计 chunks 数量。
 
         Args:
@@ -437,9 +540,10 @@ class MultimodalQdrantStore(QdrantVectorStore):
         Returns:
             匹配的 chunk 数量
         """
+        qdrant_filter = _with_current_filter(filter, current_only=current_only)
         return self.client.count(
             collection_name=self.collection_name,
-            count_filter=filter,
+            count_filter=qdrant_filter,
             exact=True,
         ).count
 

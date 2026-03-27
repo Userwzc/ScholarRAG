@@ -27,6 +27,8 @@ def process_paper(
     pdf_path: str,
     save_markdown: bool = True,
     progress_callback: Optional[ProgressCallback] = None,
+    paper_version: int = 1,
+    is_current: bool = True,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     Parses a PDF, chunks its content, and prepares multimodal inputs and metadatas for vector storage.
@@ -108,6 +110,8 @@ def process_paper(
             "section_root": section_root,
         }
         meta.update(chunk.get("metadata", {}))
+        meta["paper_version"] = paper_version
+        meta["is_current"] = is_current
         meta.setdefault("has_context_embedding", False)
 
         input_item: dict = {"text": chunk.get("content", "")}

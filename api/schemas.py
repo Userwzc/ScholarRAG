@@ -32,6 +32,8 @@ class PaperItem(BaseModel):
     title: str
     authors: str
     chunk_count: int
+    paper_version: Optional[int] = None
+    is_current: Optional[bool] = None
     created_at: Optional[str] = None
 
 
@@ -44,6 +46,8 @@ class PaperDetail(BaseModel):
     title: str
     authors: str
     chunk_count: int
+    paper_version: Optional[int] = None
+    is_current: Optional[bool] = None
     metadata: dict[str, Any]
 
 
@@ -53,6 +57,8 @@ class ChunkItem(BaseModel):
     chunk_type: str
     page_idx: Optional[int] = None
     heading: Optional[str] = None
+    paper_version: Optional[int] = None
+    is_current: Optional[bool] = None
     score: Optional[float] = None
     image: Optional[str] = None
 
@@ -195,6 +201,7 @@ class IngestionJobResult(BaseModel):
     title: str
     authors: str
     chunk_count: int
+    paper_version: Optional[int] = None
 
 
 class IngestionJobResponse(BaseModel):
@@ -222,6 +229,20 @@ class IngestionJobListItem(BaseModel):
     retry_count: int
     created_at: int
     updated_at: int
+
+
+class PaperVersionItem(BaseModel):
+    id: int
+    version_number: int
+    is_current: bool
+    source_hash: str
+    ingestion_schema_version: int
+    created_at: int
+
+
+class PaperVersionListResponse(BaseModel):
+    pdf_name: str
+    versions: list[PaperVersionItem]
 
 
 class IngestionJobListResponse(BaseModel):

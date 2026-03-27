@@ -327,7 +327,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(agent): emit structured provenance for answers` | Files: `src/agent/graph.py`, `src/agent/evidence_builder.py`, `api/services/query_service.py`, `api/schemas.py`, tests
 
-- [ ] 6. Implement version-aware reindexing and current-version retrieval guarantees
+- [x] 6. Implement version-aware reindexing and current-version retrieval guarantees
 
   **What to do**: Introduce explicit paper-version lifecycle management so first ingestion creates version 1 and subsequent reindex operations create later versions while preserving prior versions as non-current history. Update vector-store metadata generation and retrieval filters so default search/list/detail/chunk/toc flows only surface `is_current=true`, while version history can still be queried intentionally. Add an explicit reindex entry point that creates a new version and job for an existing paper.
   **Must NOT do**: Do not let stale versions leak into default retrieval results. Do not delete prior versions during a successful reindex unless the plan explicitly says so. Do not change deterministic ID generation in a way that collides across versions.

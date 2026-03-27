@@ -130,3 +130,34 @@
 - Prevents duplicate execution races in current single-process background thread model
 - Low-risk and minimal schema impact
 - Works alongside durable `status/stage/progress` transitions
+
+## Decision 9: Default Retrieval Is Current-Version Only
+
+**Context:** Version history must be preserved, but default user flows must never leak stale chunks.
+
+**Options:**
+1. Filter only in API service layer
+2. Filter in vector store methods by default + allow opt-out for explicit history reads
+3. Filter in agent tools only
+
+**Decision:** Apply `is_current=true` default filtering in vector store retrieval APIs, with `current_only=False` opt-out.
+
+**Rationale:**
+- Covers all retrieval callers (agent tools + paper APIs) consistently
+- Reduces risk of missed filters in future endpoints
+- Still supports explicit historical queries via `paper_version` filters
+
+## Decision 10: Reindex Executes In Background Thread Entry Point
+
+**Context:** Reindex endpoint must create a job and start processing asynchronously.
+
+**Options:**
+1. Run job synchronously in request thread
+2. Reuse background ingestion launcher with daemon thread
+
+**Decision:** Use daemon-thread `start_background_ingestion(job_id)` for async upload/retry/reindex routes.
+
+**Rationale:**
+- Keeps API contract non-blocking (`202 Accepted`)
+- Reuses existing job worker logic
+- Minimal change footprint without introducing external queue infra

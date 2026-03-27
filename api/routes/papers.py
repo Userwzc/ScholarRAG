@@ -13,10 +13,12 @@ from api.schemas import (
     IngestionJobRetryResponse,
     PaperDetail,
     PaperListResponse,
+    PaperVersionItem,
+    PaperVersionListResponse,
     PaperUploadResponse,
     TOCResponse,
 )
-from api.services import async_upload_service, paper_service
+from api.services import async_upload_service, paper_registry_service, paper_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +58,8 @@ async def async_upload_paper(file: UploadFile = File(...)):
                 filename=file.filename,
             )
 
+        async_upload_service.start_background_ingestion(result.job_id)
+
         return result
     except Exception as e:
         logger.exception("Failed to start async upload: %s", e)
@@ -93,13 +97,60 @@ async def retry_job(job_id: str):
         result = await async_upload_service.retry_failed_job(session, job_id)
         if result is None:
             raise HTTPException(status_code=500, detail="Failed to retry job")
+
+    async_upload_service.start_background_ingestion(job_id)
+    return result
+
+
+@router.post("/{pdf_name}/reindex", response_model=IngestionJobCreateResponse, status_code=202)
+async def reindex_paper(pdf_name: str):
+    try:
+        async with get_db_session() as session:
+            result = await async_upload_service.create_reindex_job(session, pdf_name)
+            if result is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Paper not found or source PDF unavailable",
+                )
+
+        async_upload_service.start_background_ingestion(result.job_id)
         return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to start reindex job: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to start reindex processing")
+
+
+@router.get("/{pdf_name}/versions", response_model=PaperVersionListResponse)
+async def get_paper_versions(pdf_name: str):
+    async with get_db_session() as session:
+        paper = await paper_registry_service.get_paper_by_pdf_name(session, pdf_name)
+        if paper is None:
+            raise HTTPException(status_code=404, detail="Paper not found")
+
+        versions = await paper_registry_service.list_versions(session, paper.id)
+
+    return PaperVersionListResponse(
+        pdf_name=pdf_name,
+        versions=[
+            PaperVersionItem(
+                id=version.id,
+                version_number=version.version_number,
+                is_current=version.is_current,
+                source_hash=version.source_hash,
+                ingestion_schema_version=version.ingestion_schema_version,
+                created_at=version.created_at,
+            )
+            for version in versions
+        ],
+    )
 
 
 @router.get("", response_model=PaperListResponse)
-async def list_papers():
+async def list_papers(version: Optional[int] = Query(None, ge=1)):
     try:
-        papers = paper_service.list_papers()
+        papers = paper_service.list_papers(version=version)
         return PaperListResponse(papers=papers)
     except Exception as e:
         logger.exception("Failed to list papers: %s", e)
@@ -107,8 +158,8 @@ async def list_papers():
 
 
 @router.get("/{pdf_name}", response_model=PaperDetail)
-async def get_paper(pdf_name: str):
-    paper = paper_service.get_paper_detail(pdf_name)
+async def get_paper(pdf_name: str, version: Optional[int] = Query(None, ge=1)):
+    paper = paper_service.get_paper_detail(pdf_name, version=version)
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
     return paper
@@ -134,9 +185,16 @@ async def get_paper_chunks(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     type: Optional[str] = Query(None, alias="type"),
+    version: Optional[int] = Query(None, ge=1),
 ):
     try:
-        return paper_service.get_paper_chunks(pdf_name, page, limit, type)
+        return paper_service.get_paper_chunks(
+            pdf_name,
+            page,
+            limit,
+            type,
+            version=version,
+        )
     except Exception as e:
         logger.exception("Failed to get paper chunks: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get paper chunks")
@@ -155,8 +213,8 @@ async def get_pdf_file(pdf_name: str):
 
 
 @router.get("/{pdf_name}/toc", response_model=TOCResponse)
-async def get_paper_toc(pdf_name: str):
-    toc = paper_service.get_paper_toc(pdf_name)
+async def get_paper_toc(pdf_name: str, version: Optional[int] = Query(None, ge=1)):
+    toc = paper_service.get_paper_toc(pdf_name, version=version)
     if toc is None:
         raise HTTPException(status_code=404, detail="Paper not found")
     return toc

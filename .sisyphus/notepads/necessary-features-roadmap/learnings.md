@@ -134,3 +134,18 @@ tests/
 - Adding new fields to existing event types (like `sources` to `answer_done`) is backward compatible.
 - Frontend consumers can ignore unknown fields without breaking.
 - Pydantic `SourceSchema` with optional fields allows gradual adoption.
+
+## Task 6 Learning: Version Metadata Must Be Written At Ingestion Source
+
+- Add `paper_version` and `is_current` directly in `process_paper()` metadata assembly so every chunk carries version identity regardless of caller (CLI/API/async job).
+- Deterministic UUIDs must include `paper_version` in `vector_store._content_uuid(...)` inputs, otherwise reindex writes collide with previous-version points.
+
+## Task 6 Learning: Current-Version Filtering Should Default in Vector Store APIs
+
+- Enforcing `metadata.is_current == true` as a default in `similarity_search`, `scroll_chunks`, `fetch_by_metadata`, `count_chunks`, and `get_all_papers` prevents stale-version leakage across agent search and paper endpoints.
+- Keep explicit historical access by allowing callers to pass `current_only=False` plus a `paper_version` metadata filter.
+
+## Task 6 Learning: Reindex Lifecycle Requires DB+Vector Synchronization
+
+- `run_ingestion_job()` should create and link a `PaperVersion` row before final job completion, and include the version number in job result summaries.
+- After successful reindex writes, mark previous-version vector payloads `is_current=false` to align vector-store retrieval with version lifecycle state.

@@ -28,6 +28,12 @@ _RUNNING_JOBS_LOCK = threading.Lock()
 _RUNNING_JOB_IDS: set[str] = set()
 
 
+def _get_vector_store():
+    from src.rag.vector_store import get_vector_store
+
+    return get_vector_store()
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -36,6 +42,17 @@ def _generate_job_id(filename: str) -> str:
     timestamp = str(time.time())
     unique_input = f"{filename}-{timestamp}-{uuid.uuid4()}"
     return hashlib.sha256(unique_input.encode()).hexdigest()[:16]
+
+
+def _calculate_file_hash(file_path: str) -> str:
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(8192)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def _ensure_staged_dir() -> None:
@@ -109,6 +126,45 @@ async def create_async_upload_job(
         status=job.status,
         filename=filename,
         message="Upload accepted. Processing started.",
+    )
+
+
+async def create_reindex_job(
+    session: AsyncSession,
+    pdf_name: str,
+) -> Optional[IngestionJobCreateResponse]:
+    from api.services import paper_service
+
+    paper = await paper_registry_service.get_paper_by_pdf_name(session, pdf_name)
+    if paper is None:
+        return None
+
+    source_pdf = os.path.join(paper_service.PDF_STORAGE_DIR, f"{pdf_name}.pdf")
+    if not os.path.exists(source_pdf):
+        return None
+
+    with open(source_pdf, "rb") as f:
+        file_content = f.read()
+
+    filename = f"{pdf_name}.pdf"
+    job_id = _generate_job_id(filename)
+    staged_path = stage_uploaded_file(file_content, filename, job_id)
+
+    job = await ingestion_job_service.create_ingestion_job(
+        session=session,
+        job_id=job_id,
+        paper_id=paper.id,
+        source_file_path=staged_path,
+        status="pending",
+        stage="queued",
+        progress=0,
+    )
+
+    return IngestionJobCreateResponse(
+        job_id=job.id,
+        status=job.status,
+        filename=filename,
+        message="Reindex accepted. Processing started.",
     )
 
 
@@ -220,6 +276,7 @@ async def run_ingestion_job(
     job_id: str,
 ) -> None:
     from api.services import paper_service
+    from src.core.ingestion import INGESTION_SCHEMA_VERSION
 
     if not _try_acquire_job_guard(job_id):
         return
@@ -247,6 +304,19 @@ async def run_ingestion_job(
 
         await _update_job_progress("parsing", 10)
 
+        source_hash = _calculate_file_hash(job.source_file_path)
+        paper_version = await paper_registry_service.create_paper_version(
+            session=session,
+            paper_id=job.paper_id,
+            source_hash=source_hash,
+            ingestion_schema_version=INGESTION_SCHEMA_VERSION,
+        )
+        await ingestion_job_service.update_ingestion_job(
+            session=session,
+            job_id=job_id,
+            paper_version_id=paper_version.id,
+        )
+
         loop = asyncio.get_running_loop()
 
         def _progress_callback(stage: str, progress: int) -> None:
@@ -261,12 +331,19 @@ async def run_ingestion_job(
             file_path=job.source_file_path,
             save_markdown=False,
             progress_callback=_progress_callback,
+            paper_version=paper_version.version_number,
+            is_current=True,
         )
 
         pdf_name = ingest_result["pdf_name"]
         paper_title = ingest_result["title"]
         authors_str = ingest_result["authors"]
         chunk_count = ingest_result["chunk_count"]
+
+        _get_vector_store().mark_paper_chunks_non_current(
+            pdf_name=pdf_name,
+            keep_version=paper_version.version_number,
+        )
 
         paper = await paper_registry_service.get_paper_by_pdf_name(session, pdf_name)
         if paper:
@@ -283,6 +360,7 @@ async def run_ingestion_job(
                 "title": paper_title,
                 "authors": authors_str,
                 "chunk_count": chunk_count,
+                "paper_version": paper_version.version_number,
             }
         )
 
@@ -323,9 +401,13 @@ async def run_ingestion_job_background(job_id: str) -> None:
 
 
 def start_background_ingestion(job_id: str) -> None:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(run_ingestion_job_background(job_id))
-    finally:
-        loop.close()
+    def _run() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_ingestion_job_background(job_id))
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()

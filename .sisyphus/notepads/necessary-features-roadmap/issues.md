@@ -82,3 +82,23 @@ def delete_paper(self, pdf_name: str) -> bool:
 **Fix:** Moved qdrant import into `_build_filter()` and applied targeted type-ignore for missing-import diagnostics.
 
 **Status:** RESOLVED
+
+## Issue 7: Test patch path failed for lazy vector-store import in async job runner
+
+**Error:** `AttributeError: module 'src.rag' has no attribute 'vector_store'` in unit tests patching `src.rag.vector_store.get_vector_store`.
+
+**Cause:** `run_ingestion_job()` imported `get_vector_store` lazily inside function scope; patch target path was not resolvable in the test environment.
+
+**Fix:** Added module helper `_get_vector_store()` in `async_upload_service` and patched that helper in tests.
+
+**Status:** RESOLVED
+
+## Issue 8: qdrant_client missing in lightweight unit-test environment for paper filters
+
+**Error:** `ModuleNotFoundError: No module named 'qdrant_client'` when `paper_service._build_filter()` executed.
+
+**Cause:** Filter builder imported qdrant models at runtime, but unit tests intentionally run without qdrant dependency.
+
+**Fix:** Added a lightweight fallback filter/condition model in `paper_service._build_filter()` to preserve filter semantics in tests.
+
+**Status:** RESOLVED

@@ -1,5 +1,6 @@
 import os
 import shutil
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from api.config import API_UPLOAD_DIR
@@ -46,6 +47,8 @@ def ingest_paper_file(
     file_path: str,
     save_markdown: bool = False,
     progress_callback: Optional[ProgressCallback] = None,
+    paper_version: int = 1,
+    is_current: bool = True,
 ) -> dict[str, Any]:
     from src.core.ingestion import process_paper
 
@@ -53,6 +56,8 @@ def ingest_paper_file(
         file_path,
         save_markdown=save_markdown,
         progress_callback=progress_callback,
+        paper_version=paper_version,
+        is_current=is_current,
     )
 
     pdf_name = parsed_data.get("pdf_name", "")
@@ -80,14 +85,37 @@ def ingest_paper_file(
 
 
 def _build_filter(
-    pdf_name: str = "", chunk_type: str | None = None
+    pdf_name: str = "",
+    chunk_type: str | None = None,
+    paper_version: Optional[int] = None,
 ) -> Any | None:
     """构建 Qdrant Filter 对象。
 
     Returns:
         models.Filter 对象，无条件时返回 None
     """
-    from qdrant_client.http import models  # type: ignore[reportMissingImports]
+    try:
+        from qdrant_client.http import models  # type: ignore[reportMissingImports]
+    except ImportError:
+        @dataclass
+        class _MatchValue:
+            value: Any
+
+        @dataclass
+        class _FieldCondition:
+            key: str
+            match: _MatchValue
+
+        @dataclass
+        class _Filter:
+            must: list[Any]
+
+        class _FallbackModels:
+            MatchValue = _MatchValue
+            FieldCondition = _FieldCondition
+            Filter = _Filter
+
+        models = _FallbackModels()  # type: ignore[assignment]
 
     must_conditions: list[Any] = []
     if pdf_name:
@@ -102,6 +130,13 @@ def _build_filter(
             models.FieldCondition(
                 key="metadata.chunk_type",
                 match=models.MatchValue(value=chunk_type),
+            )
+        )
+    if paper_version is not None:
+        must_conditions.append(
+            models.FieldCondition(
+                key="metadata.paper_version",
+                match=models.MatchValue(value=paper_version),
             )
         )
     return models.Filter(must=must_conditions) if must_conditions else None
@@ -119,9 +154,14 @@ def upload_paper(file_path: str) -> PaperUploadResponse:
     )
 
 
-def list_papers() -> list[PaperItem]:
+def list_papers(version: Optional[int] = None) -> list[PaperItem]:
     vector_store = _get_vector_store()
-    all_points = vector_store.get_all_papers()
+    current_only = version is None
+    filter_by_version = _build_filter(paper_version=version)
+    all_points = vector_store.get_all_papers(
+        filter=filter_by_version,
+        current_only=current_only,
+    )
 
     paper_map: dict[str, dict[str, Any]] = {}
     for point in all_points:
@@ -134,6 +174,8 @@ def list_papers() -> list[PaperItem]:
                 "title": meta.get("title", pdf_name),
                 "authors": meta.get("authors", ""),
                 "chunk_count": 0,
+                "paper_version": meta.get("paper_version"),
+                "is_current": meta.get("is_current"),
             }
         if pdf_name:
             paper_map[pdf_name]["chunk_count"] += 1
@@ -144,28 +186,37 @@ def list_papers() -> list[PaperItem]:
     return [PaperItem(**paper) for paper in papers]
 
 
-def get_paper_detail(pdf_name: str) -> Optional[PaperDetail]:
+def get_paper_detail(pdf_name: str, version: Optional[int] = None) -> Optional[PaperDetail]:
     vector_store = _get_vector_store()
 
-    qdrant_filter = _build_filter(pdf_name=pdf_name)
-    points, _ = vector_store.scroll_chunks(qdrant_filter, limit=1)
+    qdrant_filter = _build_filter(pdf_name=pdf_name, paper_version=version)
+    current_only = version is None
+    points, _ = vector_store.scroll_chunks(
+        qdrant_filter,
+        limit=1,
+        current_only=current_only,
+    )
     if not points:
         return None
 
     payload = points[0].get("payload", {})
     meta = payload.get("metadata", {})
-    chunk_count = vector_store.count_chunks(qdrant_filter)
+    chunk_count = vector_store.count_chunks(qdrant_filter, current_only=current_only)
 
     return PaperDetail(
         pdf_name=pdf_name,
         title=meta.get("title", pdf_name),
         authors=meta.get("authors", ""),
         chunk_count=chunk_count,
+        paper_version=meta.get("paper_version"),
+        is_current=meta.get("is_current"),
         metadata={
             "title": meta.get("title"),
             "authors": meta.get("authors"),
             "chunk_type": meta.get("chunk_type"),
             "backend": meta.get("backend"),
+            "paper_version": meta.get("paper_version"),
+            "is_current": meta.get("is_current"),
         },
     )
 
@@ -175,13 +226,23 @@ def get_paper_chunks(
     page: int = 1,
     limit: int = 20,
     chunk_type: Optional[str] = None,
+    version: Optional[int] = None,
 ) -> ChunkListResponse:
     vector_store = _get_vector_store()
 
-    qdrant_filter = _build_filter(pdf_name=pdf_name, chunk_type=chunk_type)
-    total = vector_store.count_chunks(qdrant_filter)
+    qdrant_filter = _build_filter(
+        pdf_name=pdf_name,
+        chunk_type=chunk_type,
+        paper_version=version,
+    )
+    current_only = version is None
+    total = vector_store.count_chunks(qdrant_filter, current_only=current_only)
 
-    all_points, _ = vector_store.scroll_chunks(qdrant_filter, limit=10000)
+    all_points, _ = vector_store.scroll_chunks(
+        qdrant_filter,
+        limit=10000,
+        current_only=current_only,
+    )
 
     start = (page - 1) * limit
     end = start + limit
@@ -201,6 +262,8 @@ def get_paper_chunks(
                 chunk_type=meta.get("chunk_type", "text"),
                 page_idx=meta.get("page_idx"),
                 heading=meta.get("heading"),
+                paper_version=meta.get("paper_version"),
+                is_current=meta.get("is_current"),
                 image=mm_input.get("image"),
             )
         )
@@ -247,11 +310,15 @@ def get_pdf_path(pdf_name: str) -> Optional[str]:
     return None
 
 
-def get_paper_toc(pdf_name: str) -> Optional[TOCResponse]:
+def get_paper_toc(pdf_name: str, version: Optional[int] = None) -> Optional[TOCResponse]:
     vector_store = _get_vector_store()
 
-    qdrant_filter = _build_filter(pdf_name=pdf_name)
-    all_points, _ = vector_store.scroll_chunks(qdrant_filter, limit=10000)
+    qdrant_filter = _build_filter(pdf_name=pdf_name, paper_version=version)
+    all_points, _ = vector_store.scroll_chunks(
+        qdrant_filter,
+        limit=10000,
+        current_only=version is None,
+    )
     if not all_points:
         return None
 

@@ -7,7 +7,8 @@
     "ses_2d1464458ffekHlMx4whzSPgg3",
     "ses_2d13d1a7dffe8wHXbCJJ3emhcQ",
     "ses_2d12eea0bffexrb2zLwrROa9ez",
-    "ses_2d12601c5ffe8G2Q6KrkObhSP2"
+    "ses_2d12601c5ffe8G2Q6KrkObhSP2",
+    "ses_2d0e67287ffex1hOwaxemVrTmn"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -56,6 +57,15 @@
       "agent": "Sisyphus-Junior",
       "category": "unspecified-high",
       "updated_at": "2026-03-27T10:43:25.739Z"
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "Implement version-aware reindexing and current-version retrieval guarantees",
+      "session_id": "ses_2d0e67287ffex1hOwaxemVrTmn",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-03-27T11:52:20.826Z"
     }
   }
 }

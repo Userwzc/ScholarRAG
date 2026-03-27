@@ -253,6 +253,7 @@ class MockVectorStore:
         k: int = 5,
         filter: Any = None,
         score_threshold: float = 0.0,
+        current_only: bool = True,
         **kwargs,
     ) -> list[dict[str, Any]]:
         """
@@ -266,6 +267,9 @@ class MockVectorStore:
         for pid, item in self._store.items():
             payload = item["payload"]
             meta = payload.get("metadata", {})
+
+            if current_only and meta.get("is_current") is False:
+                continue
 
             # Apply filter if provided
             if filter is not None:
@@ -312,21 +316,37 @@ class MockVectorStore:
             return metadata.get(key) == match_value
         return True
 
-    def get_all_papers(self) -> list[dict[str, Any]]:
-        """Get all stored items."""
-        return [{"payload": item["payload"]} for item in self._store.values()]
+    def get_all_papers(
+        self,
+        filter: Any = None,
+        current_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        results = []
+        for item in self._store.values():
+            payload = item["payload"]
+            meta = payload.get("metadata", {})
+            if current_only and meta.get("is_current") is False:
+                continue
+            if filter is not None and not self._matches_filter(meta, filter):
+                continue
+            results.append({"payload": payload})
+        return results
 
     def scroll_chunks(
         self,
         filter: Any = None,
         limit: int = 10000,
         offset: Any = None,
+        current_only: bool = True,
     ) -> tuple[list[dict[str, Any]], Any]:
         """Paginate through stored chunks."""
         results = []
         for pid, item in self._store.items():
             payload = item["payload"]
             meta = payload.get("metadata", {})
+
+            if current_only and meta.get("is_current") is False:
+                continue
 
             if filter is not None and not self._matches_filter(meta, filter):
                 continue
@@ -335,17 +355,37 @@ class MockVectorStore:
 
         return results[:limit], None
 
-    def count_chunks(self, filter: Any = None) -> int:
+    def count_chunks(self, filter: Any = None, current_only: bool = True) -> int:
         """Count chunks matching filter."""
-        if filter is None:
-            return len(self._store)
-
         count = 0
         for item in self._store.values():
             meta = item["payload"].get("metadata", {})
-            if self._matches_filter(meta, filter):
+            if current_only and meta.get("is_current") is False:
+                continue
+            if filter is None or self._matches_filter(meta, filter):
                 count += 1
         return count
+
+    def mark_paper_chunks_non_current(
+        self,
+        pdf_name: str,
+        keep_version: int,
+        batch_size: int = 256,
+    ) -> int:
+        _ = batch_size
+        updated = 0
+        for item in self._store.values():
+            payload = item.get("payload", {})
+            meta = payload.get("metadata", {})
+            if meta.get("pdf_name") != pdf_name:
+                continue
+            if meta.get("paper_version") == keep_version:
+                continue
+            if meta.get("is_current") is False:
+                continue
+            meta["is_current"] = False
+            updated += 1
+        return updated
 
     def delete_by_metadata(self, filter: Any) -> bool:
         """Delete items matching filter."""

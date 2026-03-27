@@ -17,7 +17,11 @@ from api.schemas import (  # noqa: E402
 )
 from api.services import async_upload_service  # noqa: E402
 from api.services.ingestion_job_service import get_ingestion_job, update_ingestion_job  # noqa: E402
-from api.services.paper_registry_service import create_or_get_paper  # noqa: E402
+from api.services.paper_registry_service import (  # noqa: E402
+    create_or_get_paper,
+    get_paper_by_pdf_name,
+    list_versions,
+)
 
 
 @pytest.mark.asyncio
@@ -304,11 +308,13 @@ async def test_run_ingestion_job_persists_stage_progression_and_completes(
             "api.services.paper_service.ingest_paper_file",
             side_effect=_fake_ingest,
         ),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
         patch(
             "api.services.async_upload_service.ingestion_job_service.update_ingestion_job",
             side_effect=_spy_update_ingestion_job,
         ),
     ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
         await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
 
     job = await get_ingestion_job(db_session, create_result.job_id)
@@ -318,6 +324,7 @@ async def test_run_ingestion_job_persists_stage_progression_and_completes(
     assert job.progress == 100
     assert job.result_summary is not None
     assert json.loads(job.result_summary)["pdf_name"] == "pipeline-test"
+    assert json.loads(job.result_summary)["paper_version"] == 1
 
     stage_sequence = [stage for stage, _ in observed_stages if stage is not None]
     assert stage_sequence == [
@@ -347,10 +354,14 @@ async def test_run_ingestion_job_marks_failed_and_preserves_staged_file_for_retr
     assert job_before is not None
     staged_path = job_before.source_file_path
 
-    with patch(
-        "api.services.paper_service.ingest_paper_file",
-        side_effect=RuntimeError("x" * 1000),
+    with (
+        patch(
+            "api.services.paper_service.ingest_paper_file",
+            side_effect=RuntimeError("x" * 1000),
+        ),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
     ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 0
         await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
 
     failed_job = await get_ingestion_job(db_session, create_result.job_id)
@@ -394,7 +405,11 @@ async def test_run_ingestion_job_prevents_duplicate_processing_execution(
             "chunk_count": 2,
         }
 
-    with patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest):
+    with (
+        patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+    ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
         async with temp_db["session_maker"]() as session_one, temp_db["session_maker"]() as session_two:
             await asyncio.gather(
                 async_upload_service.run_ingestion_job(session_one, create_result.job_id),
@@ -404,3 +419,60 @@ async def test_run_ingestion_job_prevents_duplicate_processing_execution(
             await session_two.commit()
 
     assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reindex_run_creates_new_version_and_toggles_current_flag(
+    db_session: AsyncSession,
+) -> None:
+    file_content = b"%PDF-1.4 test content"
+    filename = "versioned-reindex.pdf"
+
+    first_job = await async_upload_service.create_async_upload_job(
+        session=db_session,
+        file_content=file_content,
+        filename=filename,
+    )
+    second_job = await async_upload_service.create_async_upload_job(
+        session=db_session,
+        file_content=file_content,
+        filename=filename,
+    )
+
+    def _fake_ingest(*args, **kwargs):
+        callback = kwargs["progress_callback"]
+        callback("parsing", 10)
+        callback("chunking", 35)
+        callback("storing", 65)
+        callback("finalizing", 90)
+        callback("completed", 100)
+        return {
+            "pdf_name": "versioned-reindex",
+            "title": "Versioned Reindex",
+            "authors": "Author",
+            "chunk_count": 2,
+        }
+
+    with (
+        patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+    ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
+        await async_upload_service.run_ingestion_job(db_session, first_job.job_id)
+        await async_upload_service.run_ingestion_job(db_session, second_job.job_id)
+
+    paper = await get_paper_by_pdf_name(db_session, "versioned-reindex")
+    assert paper is not None
+    versions = await list_versions(db_session, paper.id)
+    assert len(versions) == 2
+    assert versions[0].version_number == 1
+    assert versions[0].is_current is False
+    assert versions[1].version_number == 2
+    assert versions[1].is_current is True
+
+    first_job_row = await get_ingestion_job(db_session, first_job.job_id)
+    second_job_row = await get_ingestion_job(db_session, second_job.job_id)
+    assert first_job_row is not None
+    assert second_job_row is not None
+    assert first_job_row.paper_version_id == versions[0].id
+    assert second_job_row.paper_version_id == versions[1].id
