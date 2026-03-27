@@ -33,6 +33,9 @@ ENV/
 *.swo
 *~
 
+# Sisyphus orchestration state
+.sisyphus/
+
 # Ruff
 .ruff_cache/
 .ruff_output/
