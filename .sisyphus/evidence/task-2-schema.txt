@@ -1,0 +1,8 @@
+Bootstrap ran twice successfully
+Tables:
+- conversations
+- ingestion_jobs
+- messages
+- paper_versions
+- papers
+- schema_migrations

@@ -1,0 +1,7 @@
+Rows persisted after restart-like reopen
+pdf_name=restart-paper
+version_number=1
+is_current=1
+status=processing
+stage=storing
+progress=55

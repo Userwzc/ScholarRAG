@@ -83,3 +83,34 @@
 - Easy to run subsets with `-k "not integration"`
 - Matches the plan's test categorization
 - Allows different CI configurations per type
+
+## Decision 6: Lightweight Internal Migration Registry
+
+**Context:** Existing startup only called `Base.metadata.create_all()`, which does not provide explicit migration history.
+
+**Options:**
+1. Bring in Alembic now
+2. Keep `create_all` only
+3. Add minimal internal migration registry with versioned SQL
+
+**Decision:** Add `schema_migrations` + versioned SQL bootstrap in `api/database.py`.
+
+**Rationale:**
+- Meets roadmap requirement for explicit, repeatable schema evolution
+- Keeps implementation small and low-risk for current scope
+- Remains idempotent across repeated startup runs
+
+## Decision 7: Separate Registry/Job Service Modules
+
+**Context:** New persistence behavior for papers/versions/jobs should not overload existing `paper_service.py` sync upload logic.
+
+**Options:**
+1. Add all logic into existing `paper_service.py`
+2. Create focused persistence service modules
+
+**Decision:** Create `paper_registry_service.py` and `ingestion_job_service.py`.
+
+**Rationale:**
+- Keeps route/service layering clean for follow-up tasks
+- Isolates state-transition logic for targeted unit tests
+- Avoids breaking current paper API behavior

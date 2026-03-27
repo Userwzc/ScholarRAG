@@ -50,3 +50,25 @@ def delete_paper(self, pdf_name: str) -> bool:
 ```
 
 **Status:** RESOLVED
+
+## Issue 4: SQLAlchemy Missing During New Test Collection
+
+**Error:** `ModuleNotFoundError: No module named 'sqlalchemy'` when collecting new schema/service tests.
+
+**Cause:** Environment lacked SQLAlchemy runtime dependency while new tests imported SQLAlchemy at module import time.
+
+**Fix:**
+- Added `pytest.importorskip("sqlalchemy")` guard in new unit test module.
+- Installed `sqlalchemy` and `aiosqlite` in environment for full execution.
+
+**Status:** RESOLVED
+
+## Issue 5: Pyright LSP Import Resolution Still Fails
+
+**Error:** `reportMissingImports` for SQLAlchemy modules in LSP diagnostics despite runtime installation.
+
+**Cause:** Pyright environment path is not aligned with runtime interpreter environment.
+
+**Fix:** Runtime verification done with pytest; LSP warnings documented for environment alignment follow-up.
+
+**Status:** OPEN

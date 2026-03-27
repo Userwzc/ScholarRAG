@@ -75,3 +75,19 @@ tests/
 ├── integration/          # Tests requiring external services
 └── evaluation/           # Offline evaluation tests
 ```
+
+## Task 2 Learning: Migration Bootstrap Pattern
+
+- Keep `Base.metadata.create_all()` for compatibility, but run explicit versioned SQL migrations afterward via `schema_migrations`.
+- Use `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` for idempotent bootstrap.
+- For SQLite schema evolution, guard `ALTER TABLE ... ADD COLUMN` with `PRAGMA table_info()` checks.
+
+## Task 2 Learning: Version Toggle Semantics
+
+- New version creation should atomically flip prior `is_current=True` rows to `False` before inserting the next current version.
+- Version numbering is simplest and deterministic when derived from max existing `version_number` per paper.
+
+## Task 2 Learning: Durable Job Transition Fields
+
+- Store `status`, `stage`, `progress`, `retry_count`, `result_summary`, and `error_message` directly in `ingestion_jobs`.
+- Normalize status values (`pending/processing/completed/failed`) in service layer to keep writes consistent.

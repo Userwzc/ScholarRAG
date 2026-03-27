@@ -156,7 +156,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `test(infra): add deterministic test harness for roadmap features` | Files: `pytest.ini`, `tests/conftest.py`, `tests/fixtures/**`, optional `frontend/**/__tests__/**`
 
-- [ ] 2. Add persistent paper/version/job schema with migration bootstrap
+- [x] 2. Add persistent paper/version/job schema with migration bootstrap
 
   **What to do**: Introduce SQLite persistence for `paper`, `paper_version`, and `ingestion_job`, plus the minimal migration/bootstrap mechanism needed to evolve the current DB safely. Keep `Conversation` and `Message` intact, but extend startup so schema changes are explicit and repeatable rather than relying only on `Base.metadata.create_all()`. Define durable fields for job status, progress, stage, retry count, source file path, result summary, error message, and for versions: `version_number`, `is_current`, timestamps, source hash, and schema version.
   **Must NOT do**: Do not add Redis/Celery. Do not remove or rename existing conversation tables. Do not store transient-only status in memory.

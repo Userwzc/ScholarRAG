@@ -3,7 +3,8 @@
   "started_at": "2026-03-27T09:36:48.421Z",
   "session_ids": [
     "ses_2d18703bfffei9mTAuX6CxoJgr",
-    "ses_2d1575513ffeyEKrh7B7Q4l3Vs"
+    "ses_2d1575513ffeyEKrh7B7Q4l3Vs",
+    "ses_2d1464458ffekHlMx4whzSPgg3"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -16,6 +17,15 @@
       "agent": "Sisyphus-Junior",
       "category": "unspecified-high",
       "updated_at": "2026-03-27T09:54:32.332Z"
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "Add persistent paper/version/job schema with migration bootstrap",
+      "session_id": "ses_2d1464458ffekHlMx4whzSPgg3",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-03-27T10:04:27.792Z"
     }
   }
 }
