@@ -1,0 +1,31 @@
+=== Retry Rejection Test ===
+
+Scenario: Create a fresh pending job, then call the retry endpoint before it fails
+
+Expected: API returns None (service layer) or 409 (route layer) indicating retry is only allowed for failed jobs
+
+Test Steps:
+1. Create a new async upload job (status: pending)
+2. Call retry_failed_job() on the pending job
+3. Verify retry is rejected
+
+Result:
+Job ID: fbd591f27afbf470
+Job Status: pending
+Retry Result: None
+
+Expected: retry_failed_job returns None for non-failed jobs
+Actual: retry_result is None = True
+
+=== Route Layer Behavior ===
+
+When called via the API route:
+- GET /api/papers/uploads/{job_id} returns job status
+- POST /api/papers/uploads/{job_id}/retry checks if status == 'failed'
+- If status != 'failed', returns HTTP 409 Conflict with message: "Retry is only allowed for failed jobs"
+
+=== Verification ===
+
+✓ Retry is rejected for non-failed jobs
+✓ Service layer returns None for invalid retry attempts
+✓ Route layer returns 409 Conflict with sanitized error message

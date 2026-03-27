@@ -171,3 +171,63 @@ class MessageCreate(BaseModel):
     steps: Optional[list[AgentStepSchema]] = None
     sources: Optional[list[SourceSchema]] = None
     created_at: int
+
+
+class IngestionJobCreateResponse(BaseModel):
+    """Response for async upload endpoint (202 Accepted)."""
+
+    job_id: str
+    status: str
+    filename: str
+    message: str
+
+
+class IngestionJobResult(BaseModel):
+    """Result summary for completed ingestion jobs."""
+
+    pdf_name: str
+    title: str
+    authors: str
+    chunk_count: int
+
+
+class IngestionJobResponse(BaseModel):
+    """Full job status response."""
+
+    job_id: str
+    status: str
+    stage: str
+    progress: int
+    retry_count: int
+    error_message: Optional[str] = None
+    result: Optional[IngestionJobResult] = None
+    created_at: int
+    updated_at: int
+
+
+class IngestionJobListItem(BaseModel):
+    """Job item for list endpoint."""
+
+    job_id: str
+    pdf_name: str
+    status: str
+    stage: str
+    progress: int
+    retry_count: int
+    created_at: int
+    updated_at: int
+
+
+class IngestionJobListResponse(BaseModel):
+    """Response for listing jobs."""
+
+    jobs: list[IngestionJobListItem]
+    total: int
+
+
+class IngestionJobRetryResponse(BaseModel):
+    """Response for retry endpoint."""
+
+    job_id: str
+    status: str
+    message: str

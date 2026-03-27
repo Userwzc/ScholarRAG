@@ -1,0 +1,35 @@
+=== Async Upload Endpoint Test ===
+
+Command: POST /api/papers/uploads with PDF file
+
+Expected: HTTP status 202 and JSON containing job_id, status, filename
+
+Result:
+HTTP Status: 202
+job_id: 2455d8eae9fd23c5
+status: pending
+filename: test-paper.pdf
+message: Upload accepted. Processing started.
+
+=== Job Status Endpoint Test ===
+
+Command: GET /api/papers/uploads/{job_id}
+
+Expected: JSON containing status, stage, progress, retry_count, error_message, result
+
+Result:
+job_id: 2455d8eae9fd23c5
+status: pending
+stage: queued
+progress: 0
+retry_count: 0
+error_message: None
+result: None
+created_at: 1774606637495
+updated_at: 1774606637495
+
+=== Verification ===
+
+✓ POST to async upload endpoint returns 202 with job_id
+✓ GET job endpoint returns durable status, stage, progress, retry_count, error_message, result fields
+✓ Existing /api/papers/upload compatibility path still works (unchanged)

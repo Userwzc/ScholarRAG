@@ -198,7 +198,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(api): persist papers versions and ingestion jobs` | Files: `api/models.py`, `api/database.py`, migration/bootstrap files, related service modules/tests
 
-- [ ] 3. Introduce non-breaking async ingestion API with status and retry endpoints
+- [x] 3. Introduce non-breaking async ingestion API with status and retry endpoints
 
   **What to do**: Keep the current synchronous upload path for compatibility, but add a new async job-oriented upload flow that the frontend will adopt. Create endpoints that: (1) accept multipart upload and immediately return `202` with `job_id`, (2) fetch a job by ID, (3) retry a failed job, and (4) optionally list recent jobs for the library screen. Persist the staged source PDF in a job-scoped location so retries are possible even after the initial request ends.
   **Must NOT do**: Do not replace `/api/papers/upload` with a breaking response format. Do not keep retry state only in memory. Do not delete the staged file before the job reaches a terminal state.

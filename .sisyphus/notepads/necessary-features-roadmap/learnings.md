@@ -91,3 +91,18 @@ tests/
 
 - Store `status`, `stage`, `progress`, `retry_count`, `result_summary`, and `error_message` directly in `ingestion_jobs`.
 - Normalize status values (`pending/processing/completed/failed`) in service layer to keep writes consistent.
+
+## Task 3 Learning: Async Upload API Design
+
+- Route ordering matters in FastAPI: `/uploads` routes must come before `/{pdf_name}` routes to avoid path conflicts.
+- Use `selectinload()` for eager loading relationships in async SQLAlchemy to avoid `MissingGreenlet` errors.
+- Staged files should be stored in job-scoped directories (`staged/{job_id}/filename.pdf`) for retry support.
+- The `get_db_session()` context manager from `api.database` provides automatic commit/rollback for route handlers.
+- HTTP 202 Accepted is the correct status code for async job creation endpoints.
+- HTTP 409 Conflict is appropriate for retry rejection on non-failed jobs.
+
+## Task 3 Learning: Non-Breaking API Extension
+
+- Keep existing sync `/upload` endpoint unchanged for backward compatibility.
+- New async endpoints use `/uploads` (plural) to distinguish from sync `/upload`.
+- Job status includes all fields needed for frontend polling: status, stage, progress, retry_count, error_message, result.
