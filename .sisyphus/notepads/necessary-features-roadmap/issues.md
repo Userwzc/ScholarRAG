@@ -102,3 +102,16 @@ def delete_paper(self, pdf_name: str) -> bool:
 **Fix:** Added a lightweight fallback filter/condition model in `paper_service._build_filter()` to preserve filter semantics in tests.
 
 **Status:** RESOLVED
+
+## Issue 9: Scope fidelity gap candidates found in final audit
+
+**Observation:** Final F4 audit indicates potential partials:
+- CI evaluation step runs `pytest tests/evaluation -v`, but does not explicitly run the offline runner command to emit/consume a JSON report as a gate artifact.
+- Version history is API-accessible, but no obvious frontend version-history/reindex surface is present.
+
+**Status:** OPEN
+
+- 2026-03-27 Plan compliance audit: `ruff check .` currently fails on roadmap test files, so the CI backend lint gate cannot pass as-is.
+- 2026-03-27 Plan compliance audit: `.github/workflows/ci.yml` runs `pytest tests/evaluation -v` instead of `python -m tests.evaluation.runner ...`, so CI does not gate on evaluation thresholds or guaranteed JSON report generation.
+- 2026-03-27 Plan compliance audit: `src/agent/evidence_builder.py` imports `vector_store` directly and calls `fetch_by_metadata` with a plain dict, violating the Qdrant `models.Filter` guardrail and bypassing the lazy singleton path.
+- 2026-03-27 Plan compliance audit: mandatory QA evidence files are present for tasks 1-6 and 8, but missing for tasks 7, 9, and 10 under `.sisyphus/evidence/`.

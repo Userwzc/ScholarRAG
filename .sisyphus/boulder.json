@@ -10,7 +10,19 @@
     "ses_2d12601c5ffe8G2Q6KrkObhSP2",
     "ses_2d0e67287ffex1hOwaxemVrTmn",
     "ses_2d0d9963fffelhsEJWdNQ8ZadR",
-    "ses_2d0cb9f91ffeauNOYMjnjhu8mq"
+    "ses_2d0cb9f91ffeauNOYMjnjhu8mq",
+    "ses_2d0bdd555ffeIWyyHK4GHssISg",
+    "ses_2d0acf298ffeqRj5If2XLNHjSq",
+    "ses_2d0a987bcffeloh2yjti6hi2iS",
+    "ses_2d0a2c661ffeJJ4go3iC3EGoMc",
+    "ses_2d0a07fa0ffemKoF4jSB4O53FF",
+    "ses_2d0a02ec6ffeq206aaC5JEzoNc",
+    "ses_2d09fcd82ffeyfhvQqQoQJBLOM",
+    "ses_2d0a0bb94ffect7U2AI2F0uFeK",
+    "ses_2d08cd915ffeSr1JraObY2FtEf",
+    "ses_2d08c73f3ffeirgi9Hs128dh6S",
+    "ses_2d08b94fdffeh5XwAp3FNUA5c6",
+    "ses_2d08c062effeDt1icZHR6jAHi2"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -86,6 +98,33 @@
       "agent": "Sisyphus-Junior",
       "category": "unspecified-high",
       "updated_at": "2026-03-27T12:23:39.139Z"
+    },
+    "todo:9": {
+      "task_key": "todo:9",
+      "task_label": "9",
+      "task_title": "Add regression tests covering jobs, versioning, provenance, and evaluation gates",
+      "session_id": "ses_2d0a987bcffeloh2yjti6hi2iS",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-03-27T12:54:04.416Z"
+    },
+    "todo:10": {
+      "task_key": "todo:10",
+      "task_label": "10",
+      "task_title": "Add GitHub Actions quality gates for backend, evaluation, and frontend verification",
+      "session_id": "ses_2d0a2c661ffeJJ4go3iC3EGoMc",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-03-27T12:57:01.333Z"
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "Plan Compliance Audit — oracle",
+      "session_id": "ses_2d08c062effeDt1icZHR6jAHi2",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-03-27T13:22:25.644Z"
     }
   }
 }

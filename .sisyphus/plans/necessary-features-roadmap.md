@@ -458,7 +458,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(eval): add deterministic offline regression evaluation` | Files: `tests/evaluation/**`, optional helper modules, docs/comments, tests
 
-- [ ] 9. Add regression tests covering jobs, versioning, provenance, and evaluation gates
+- [x] 9. Add regression tests covering jobs, versioning, provenance, and evaluation gates
 
   **What to do**: Use the Task-1 harness to add focused unit/integration coverage for the new roadmap capabilities. Cover: job state transitions, retry rules, staged-file retention, version-current flipping, retrieval filtering by current version, provenance schema persistence, and evaluation-runner pass/fail behavior. Include integration tests that hit FastAPI endpoints end-to-end with fakes/mocks where GPU/Qdrant/LLM calls would otherwise make tests flaky.
   **Must NOT do**: Do not rely on external APIs in default test runs. Do not leave the new features validated only by manual curl commands. Do not test only happy paths.
@@ -501,7 +501,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `test(regression): cover jobs versioning provenance and evaluation` | Files: `tests/**`, optional frontend helper tests
 
-- [ ] 10. Add GitHub Actions quality gates for backend, evaluation, and frontend verification
+- [x] 10. Add GitHub Actions quality gates for backend, evaluation, and frontend verification
 
   **What to do**: Add a CI workflow that runs on pull requests and pushes to the main development branch, provisions the minimum dependencies needed for deterministic verification, and executes backend lint/tests, offline evaluation, and frontend lint/build. Prefer mocked or fixture-driven tests by default; if a live Qdrant service is required for a subset, provision it as a GitHub Actions service container. Publish evaluation JSON and coverage artifacts for failed runs.
   **Must NOT do**: Do not require GPU runners. Do not run real model downloads in CI. Do not make CI green when evaluation thresholds fail.

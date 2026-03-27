@@ -242,12 +242,12 @@ def aggregate_metrics(results: list[QueryResult]) -> EvaluationMetrics:
 
 def check_citation_coverage(chunk: dict[str, Any]) -> bool:
     """
-    Check if a chunk has required citation/provenance fields.
+    Check if a chunk has the required fields for citation coverage.
 
     Required fields:
-    - pdf_name: Paper identifier
-    - page: Page number
-    - type: Chunk type (text/image/table)
+    - pdf_name: Name of the PDF file
+    - page_idx: Page index (0-indexed)
+    - chunk_type: Chunk type (text/image/table)
 
     Optional but recommended:
     - chunk_id: Unique identifier
@@ -262,15 +262,13 @@ def check_citation_coverage(chunk: dict[str, Any]) -> bool:
     """
     metadata = chunk.get("metadata", chunk)
 
-    # Check required fields
-    required_fields = ["pdf_name", "page", "type"]
-    for required_field in required_fields:
-        if required_field not in metadata and required_field not in chunk:
-            return False
-
-    # Check that pdf_name is not empty
+    # Check required fields - handle both stored field names and legacy names
+    # Stored metadata uses page_idx and chunk_type, but also accept page and type
+    page = metadata.get("page_idx") or metadata.get("page") or chunk.get("page_idx") or chunk.get("page")
+    chunk_type = metadata.get("chunk_type") or metadata.get("type") or chunk.get("chunk_type") or chunk.get("type")
     pdf_name = metadata.get("pdf_name") or chunk.get("pdf_name", "")
-    if not pdf_name:
+
+    if page is None or chunk_type is None or not pdf_name:
         return False
 
     return True

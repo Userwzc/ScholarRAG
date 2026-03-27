@@ -412,6 +412,12 @@ Examples:
         help="Threshold overrides in format 'name=value' (e.g., retrieval_hit_rate=0.6)",
     )
     parser.add_argument(
+        "--thresholds-file",
+        type=str,
+        default=None,
+        help="Path to JSON file containing threshold configuration",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress summary output",
@@ -419,9 +425,19 @@ Examples:
 
     args = parser.parse_args()
 
-    # Parse threshold overrides
     try:
-        thresholds = create_threshold_config_from_args(args.thresholds)
+        if args.thresholds_file:
+            with open(args.thresholds_file, "r", encoding="utf-8") as f:
+                threshold_data = json.load(f)
+            thresholds = ThresholdConfig.from_dict(threshold_data)
+        else:
+            thresholds = create_threshold_config_from_args(args.thresholds)
+    except FileNotFoundError as e:
+        print(f"Error: Thresholds file not found: {e}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in thresholds file: {e}", file=sys.stderr)
+        return 2
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2

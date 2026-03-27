@@ -1,0 +1,8 @@
+{
+  "retrieval_hit_rate": 0.5,
+  "page_hit_rate": 0.3,
+  "keyword_match_rate": 0.3,
+  "citation_coverage_rate": 0.8,
+  "current_version_leak_rate": 0.0,
+  "failed_query_rate": 0.1
+}

@@ -235,3 +235,8 @@ tests/
 - External datasets can be loaded from JSON files
 - Dataset includes: name, version, description, queries
 - Each query has: question, expected_pdf, expected_pages, keywords, expected_chunk_ids, expected_version
+
+## Scope Fidelity Check Learning (F4)
+
+- Core roadmap features are present end-to-end, but strict scope-fidelity review should separately verify **contract completeness** (e.g., CI actually consuming evaluation JSON artifacts, not only evaluation unit tests).
+- Version history is exposed via API (`GET /api/papers/{pdf_name}/versions`), while frontend currently emphasizes job/provenance UX; explicit version-history UI remains a potential gap depending on acceptance interpretation.

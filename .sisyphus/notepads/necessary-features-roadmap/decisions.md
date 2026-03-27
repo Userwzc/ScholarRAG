@@ -161,3 +161,5 @@
 - Keeps API contract non-blocking (`202 Accepted`)
 - Reuses existing job worker logic
 - Minimal change footprint without introducing external queue infra
+
+- 2026-03-27 Audit verdict: REJECT pending fixes for backend lint/CI, evaluation CI gating, and Qdrant filter compliance; missing QA evidence remains a plan-compliance warning.

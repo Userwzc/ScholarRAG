@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Optional
 
 from src.ingest.mineru_parser import MinerUParser
 from config.settings import config
@@ -29,7 +29,7 @@ def process_paper(
     progress_callback: Optional[ProgressCallback] = None,
     paper_version: int = 1,
     is_current: bool = True,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """
     Parses a PDF, chunks its content, and prepares multimodal inputs and metadatas for vector storage.
     Returns: (multimodal_inputs, metadata_list, parsed_data)

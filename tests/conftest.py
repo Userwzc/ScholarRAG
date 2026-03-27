@@ -46,7 +46,7 @@ import tempfile
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -147,7 +147,7 @@ async def temp_db() -> AsyncGenerator[dict[str, Any], None]:
         pytest.skip("aiosqlite not installed")
         return
 
-    from api.database import Base
+    from api.database import Base, _bootstrap_schema
 
     # Create temp file for database
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
@@ -165,9 +165,9 @@ async def temp_db() -> AsyncGenerator[dict[str, Any], None]:
         expire_on_commit=False,
     )
 
-    # Create tables
+    # Create tables using _bootstrap_schema which properly imports models
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_bootstrap_schema)
 
     yield {
         "db_path": db_path,
@@ -193,7 +193,6 @@ async def db_session(temp_db: dict[str, Any]) -> AsyncGenerator[Any, None]:
     This is a convenience fixture that wraps temp_db and provides
     a ready-to-use session with automatic commit/rollback.
     """
-    from sqlalchemy.ext.asyncio import AsyncSession
 
     async with temp_db["session_maker"]() as session:
         try:

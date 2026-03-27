@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import IngestionJob
 
+_UNSET = ...
+
 TERMINAL_JOB_STATUSES = ("completed", "failed")
 ACTIVE_JOB_STATUSES = ("pending", "processing")
 VALID_JOB_STATUSES = ACTIVE_JOB_STATUSES + TERMINAL_JOB_STATUSES
@@ -78,7 +80,7 @@ async def update_ingestion_job(
     retry_count: Optional[int] = None,
     paper_version_id: Optional[int] = None,
     result_summary: Optional[str] = None,
-    error_message: Optional[str] = None,
+    error_message: Optional[str] = _UNSET,
 ) -> Optional[IngestionJob]:
     job = await get_ingestion_job(session, job_id)
     if job is None:
@@ -96,7 +98,7 @@ async def update_ingestion_job(
         job.paper_version_id = paper_version_id
     if result_summary is not None:
         job.result_summary = result_summary
-    if error_message is not None:
+    if error_message is not _UNSET:
         job.error_message = error_message
 
     job.updated_at = _now_ms()

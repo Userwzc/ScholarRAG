@@ -85,10 +85,23 @@ def _page_support_text(
         return []
 
     try:
-        from src.rag.vector_store import vector_store
+        from src.rag.vector_store import get_vector_store
+        from qdrant_client.http import models
 
+        vector_store = get_vector_store()
         results = vector_store.fetch_by_metadata(
-            {"pdf_name": pdf_name, "page_idx": page_idx},
+            models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.pdf_name",
+                        match=models.MatchValue(value=pdf_name)
+                    ),
+                    models.FieldCondition(
+                        key="metadata.page_idx",
+                        match=models.MatchValue(value=page_idx)
+                    ),
+                ]
+            ),
             limit=20,
         )
     except Exception as exc:
