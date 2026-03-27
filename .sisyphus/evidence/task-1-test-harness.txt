@@ -1,0 +1,48 @@
+# Task 1: Backend Test Harness - Verification Evidence
+
+## Scenario: Backend test harness boots cleanly
+
+**Tool:** Bash
+**Command:** `pytest tests -q -k "not integration"`
+**Date:** 2026-03-27
+
+### Result: PASS
+
+```
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/wzc/github/ScholarRAG
+configfile: pytest.ini
+plugins: anyio-4.13.0, langsmith-0.7.22, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 15 items
+
+tests/unit/test_conftest.py ..sss..s.....s.                              [100%]
+
+======================== 10 passed, 5 skipped in 0.02s =========================
+```
+
+### Observations:
+- pytest exits 0 (success)
+- 15 tests collected
+- 10 tests passed
+- 5 tests skipped (due to missing optional dependencies like sqlalchemy, qdrant_client)
+- No attempts to download models or connect to external services
+- Tests run without GPU requirements
+
+## Files Created:
+- `pytest.ini` - pytest configuration with asyncio mode
+- `tests/conftest.py` - shared fixtures for environment, database, vector store
+- `tests/fixtures/__init__.py` - fixtures package
+- `tests/fixtures/sample_papers.py` - sample paper data
+- `tests/fixtures/pdfs/__init__.py` - PDF fixtures directory
+- `tests/unit/__init__.py` - unit tests package
+- `tests/unit/test_conftest.py` - tests for the harness itself
+- `tests/__init__.py` - tests package
+
+## Key Features:
+1. **Environment Isolation**: `test_env` fixture automatically sets mock values for all environment variables
+2. **Database Fixtures**: `temp_db` and `db_session` provide isolated SQLite databases
+3. **Mock Vector Store**: `MockVectorStore` class provides deterministic testing without Qdrant
+4. **Sample Data**: Fixtures for paper payloads, PDFs, and conversation data
+5. **Graceful Skipping**: Tests skip when optional dependencies are missing

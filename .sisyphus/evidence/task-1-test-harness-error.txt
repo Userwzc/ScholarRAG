@@ -1,0 +1,44 @@
+# Task 1: Backend Test Harness - Error Handling Evidence
+
+## Scenario: Missing env values do not break fixture startup
+
+**Tool:** Bash
+**Command:** `env -u OPENAI_API_KEY -u EMBEDDING_MODEL pytest tests -q -k "not integration"`
+**Date:** 2026-03-27
+
+### Result: PASS
+
+```
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/wzc/github/ScholarRAG
+configfile: pytest.ini
+plugins: anyio-4.13.0, langsmith-0.7.22, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 15 items
+
+tests/unit/test_conftest.py ..sss..s.....s.                              [100%]
+
+======================== 10 passed, 5 skipped in 0.02s =========================
+```
+
+### Observations:
+- Tests still run using test overrides/fakes
+- No auth/model-path crash occurs during collection
+- The `test_env` fixture (autouse=True, session scope) sets mock values before any tests run
+- Even with OPENAI_API_KEY and EMBEDDING_MODEL unset, the fixture provides:
+  - `OPENAI_API_KEY=test-key-mock`
+  - `EMBEDDING_MODEL=mock-model`
+
+### How It Works:
+1. The `test_env` fixture has `autouse=True` and `scope="session"`
+2. It runs automatically before any tests are collected
+3. It sets all required environment variables to mock values
+4. Tests can safely import config modules without crashes
+5. Original environment values are restored after the session
+
+### Key Design Decisions:
+- Session-scoped fixture ensures env is set before any imports
+- Mock values are clearly identifiable (e.g., "mock-model", "test-key-mock")
+- No real API keys or model paths are required
+- Tests are deterministic and reproducible

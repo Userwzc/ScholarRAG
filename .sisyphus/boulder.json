@@ -1,16 +1,21 @@
 {
-  "active_plan": "/home/wzc/Workspace/Github/ScholarRAG/.sisyphus/plans/remove-reranker-hybrid-default.md",
-  "started_at": "2026-03-25T04:53:17.307Z",
+  "active_plan": "/home/wzc/github/ScholarRAG/.sisyphus/plans/necessary-features-roadmap.md",
+  "started_at": "2026-03-27T09:36:48.421Z",
   "session_ids": [
-    "ses_2dcfeaf90ffe6otVMaqUGaozLO",
-    "ses_2dc9f6174ffey1xLgXUDJ3z3ru",
-    "ses_2dc8845d9ffesFvexP53TiDBDv",
-    "ses_2dc885d0fffe31FaxedyP2BMA3",
-    "ses_2dc880f82ffeEsDZw233WPNT13",
-    "ses_2dc889598ffe6jlfNOYPlCkuho",
-    "ses_2dc815a81ffeHAD5JXoINi3DuU"
+    "ses_2d18703bfffei9mTAuX6CxoJgr",
+    "ses_2d1575513ffeyEKrh7B7Q4l3Vs"
   ],
-  "plan_name": "remove-reranker-hybrid-default",
+  "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
-  "task_sessions": {}
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Establish backend test harness and reproducible fixtures",
+      "session_id": "ses_2d1575513ffeyEKrh7B7Q4l3Vs",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-03-27T09:54:32.332Z"
+    }
+  }
 }
