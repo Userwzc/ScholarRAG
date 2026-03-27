@@ -121,9 +121,15 @@ class AgentStepSchema(BaseModel):
 
 
 class SourceSchema(BaseModel):
+    """Structured citation/provenance for a retrieved evidence chunk."""
+
     pdf_name: str
     page: int
     type: str
+    chunk_id: Optional[str] = None
+    paper_version: Optional[int] = None
+    heading: Optional[str] = None
+    supporting_text: Optional[str] = None
 
 
 class MessageResponse(BaseModel):

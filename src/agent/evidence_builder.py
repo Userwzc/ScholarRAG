@@ -2,7 +2,6 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
-from src.rag.vector_store import vector_store
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -10,6 +9,7 @@ logger = get_logger(__name__)
 MAX_TEXT_EVIDENCE_CHARS = 2200
 MAX_SUPPORT_TEXT_CHARS = 900
 MAX_FINAL_EVIDENCE = 8
+MAX_PROVENANCE_TEXT_CHARS = 200
 
 
 def _coerce_text(content: Any) -> str:
@@ -85,6 +85,8 @@ def _page_support_text(
         return []
 
     try:
+        from src.rag.vector_store import vector_store
+
         results = vector_store.fetch_by_metadata(
             {"pdf_name": pdf_name, "page_idx": page_idx},
             limit=20,
@@ -244,3 +246,60 @@ def route_evidence(
         routed.append(row)
 
     return answer_mode, routed
+
+
+def build_structured_provenance(
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build structured provenance objects from evidence for API responses.
+
+    Args:
+        evidence: List of evidence items from route_evidence()
+
+    Returns:
+        List of structured provenance dicts with:
+        - pdf_name: Paper identifier
+        - page: Page number (int)
+        - type: Chunk type (text/image/table)
+        - chunk_id: Unique chunk identifier (evidence_id)
+        - paper_version: Version number (None until Task 6)
+        - heading: Section heading
+        - supporting_text: Truncated text excerpt
+    """
+    provenance: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, int, str]] = set()
+
+    for item in evidence:
+        pdf_name = str(item.get("pdf_name", ""))
+        page_idx = item.get("page_idx")
+        chunk_type = str(item.get("chunk_type", "text"))
+
+        if not pdf_name:
+            continue
+
+        try:
+            page = int(page_idx) if page_idx is not None else 0
+        except (ValueError, TypeError):
+            page = 0
+
+        key = (pdf_name, page, chunk_type)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        text = str(item.get("text", ""))
+        supporting_text = _truncate(text, MAX_PROVENANCE_TEXT_CHARS) if text else None
+
+        provenance.append(
+            {
+                "pdf_name": pdf_name,
+                "page": page,
+                "type": chunk_type,
+                "chunk_id": str(item.get("evidence_id", "")) or None,
+                "paper_version": item.get("paper_version"),
+                "heading": str(item.get("heading", "")) or None,
+                "supporting_text": supporting_text,
+            }
+        )
+
+    return provenance

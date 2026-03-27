@@ -6,7 +6,8 @@
     "ses_2d1575513ffeyEKrh7B7Q4l3Vs",
     "ses_2d1464458ffekHlMx4whzSPgg3",
     "ses_2d13d1a7dffe8wHXbCJJ3emhcQ",
-    "ses_2d12eea0bffexrb2zLwrROa9ez"
+    "ses_2d12eea0bffexrb2zLwrROa9ez",
+    "ses_2d12601c5ffe8G2Q6KrkObhSP2"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -46,6 +47,15 @@
       "agent": "Sisyphus-Junior",
       "category": "deep",
       "updated_at": "2026-03-27T10:29:52.178Z"
+    },
+    "todo:5": {
+      "task_key": "todo:5",
+      "task_label": "5",
+      "task_title": "Emit structured citation and provenance data from the backend query flow",
+      "session_id": "ses_2d12601c5ffe8G2Q6KrkObhSP2",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-03-27T10:43:25.739Z"
     }
   }
 }

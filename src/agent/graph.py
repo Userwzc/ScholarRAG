@@ -308,6 +308,11 @@ def _tool_observation_text(kind: str, summary: dict[str, Any]) -> str:
 
 
 from src.agent.langgraph_agent import agent_app  # noqa: E402
+from src.agent.evidence_builder import (  # noqa: E402
+    build_structured_provenance,
+    collect_evidence,
+    enrich_evidence,
+)
 
 
 def run_agent_loop_events(
@@ -337,6 +342,7 @@ def run_agent_loop_events(
 
     last_step = 0
     processed_msg_ids = set()
+    all_tool_messages: list[ToolMessage] = []
 
     # We iterate over the stream_mode="values" to catch each state update
     for event in agent_app.stream(current_state, stream_mode="values"):
@@ -399,6 +405,7 @@ def run_agent_loop_events(
                 )
                 if msg_id not in processed_msg_ids:
                     processed_msg_ids.add(msg_id)
+                    all_tool_messages.append(tool_message)
                     summary = _summarize_tool_payload(tool_message)
                     kind = _tool_event_kind(tool_message.name or "tool")
 
@@ -458,10 +465,15 @@ def run_agent_loop_events(
             "text": "Tool use complete; streaming final answer",
         }
 
+    # Build structured provenance from collected evidence
+    evidence = collect_evidence(all_tool_messages)
+    enriched = enrich_evidence(evidence)
+    provenance = build_structured_provenance(enriched)
+
     yield {"type": "answer_started"}
     for token in stream_final_answer(final_messages):
         yield {"type": "answer_token", "text": token}
-    yield {"type": "answer_done"}
+    yield {"type": "answer_done", "sources": provenance}
 
 
 def stream_answer_events(

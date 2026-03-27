@@ -112,3 +112,25 @@ tests/
 - Keep `process_paper()` synchronous but accept `progress_callback(stage, progress)` so parse/chunk stages are observable without changing CLI callers.
 - In async ingestion workers, run heavy sync ingestion via `asyncio.to_thread(...)` and bridge callback updates back to DB with `asyncio.run_coroutine_threadsafe(...)` for durable stage/progress writes.
 - Use explicit monotonic stages: `queued -> parsing -> chunking -> storing -> finalizing -> completed/failed`.
+
+## Task 5 Learning: Structured Provenance Design
+
+- Provenance should be built from collected evidence after the agent loop completes, not during streaming.
+- Deduplicate by `(pdf_name, page, type)` tuple to avoid duplicate citations for same chunk.
+- `paper_version` field is optional and will be populated by Task 6 (version-aware reindex).
+- Supporting text should be truncated (200 chars) to keep payloads reasonable.
+- Empty evidence should return empty `sources` array, not fabricated citations.
+
+## Task 5 Learning: Lazy Import for Vector Store
+
+- The `vector_store` module imports heavy dependencies (`langchain_qdrant`, `torch`).
+- Import `vector_store` inside functions that need it, not at module level.
+- This allows tests to run without GPU/Qdrant dependencies when testing pure logic functions.
+- Pattern: `from src.rag.vector_store import vector_store` inside try/except block.
+
+## Task 5 Learning: SSE Event Extension
+
+- SSE events are passed through as-is with `json.dumps(event)`.
+- Adding new fields to existing event types (like `sources` to `answer_done`) is backward compatible.
+- Frontend consumers can ignore unknown fields without breaking.
+- Pydantic `SourceSchema` with optional fields allows gradual adoption.

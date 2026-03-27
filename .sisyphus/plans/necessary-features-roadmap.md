@@ -283,7 +283,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(ingest): persist job progress and retry-safe terminal states` | Files: `src/core/ingestion.py`, `api/services/paper_service.py`, related helpers/tests
 
-- [ ] 5. Emit structured citation and provenance data from the backend query flow
+- [x] 5. Emit structured citation and provenance data from the backend query flow
 
   **What to do**: Replace the current coarse page-only source reconstruction with backend-authored provenance objects. Extend evidence assembly and streaming so final query results include `chunk_id`, `paper_version`, `pdf_name`, `page`, `chunk_type`, `heading`, and a short supporting text/label while preserving existing `sources` compatibility. Ensure both SSE final events and persisted conversation messages carry the same normalized provenance shape.
   **Must NOT do**: Do not force the frontend to infer citations from `tool_result.pages` only. Do not remove the existing `pdf_name/page/type` fields that current consumers already understand. Do not expose raw internal exception data in SSE payloads.
