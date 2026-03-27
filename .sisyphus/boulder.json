@@ -5,7 +5,8 @@
     "ses_2d18703bfffei9mTAuX6CxoJgr",
     "ses_2d1575513ffeyEKrh7B7Q4l3Vs",
     "ses_2d1464458ffekHlMx4whzSPgg3",
-    "ses_2d13d1a7dffe8wHXbCJJ3emhcQ"
+    "ses_2d13d1a7dffe8wHXbCJJ3emhcQ",
+    "ses_2d12eea0bffexrb2zLwrROa9ez"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -36,6 +37,15 @@
       "agent": "Sisyphus-Junior",
       "category": "unspecified-high",
       "updated_at": "2026-03-27T10:20:05.171Z"
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "Instrument ingestion pipeline with progress, terminal states, and manual retry safety",
+      "session_id": "ses_2d12eea0bffexrb2zLwrROa9ez",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-03-27T10:29:52.178Z"
     }
   }
 }

@@ -106,3 +106,9 @@ tests/
 - Keep existing sync `/upload` endpoint unchanged for backward compatibility.
 - New async endpoints use `/uploads` (plural) to distinguish from sync `/upload`.
 - Job status includes all fields needed for frontend polling: status, stage, progress, retry_count, error_message, result.
+
+## Task 4 Learning: Progress Callback Threading Pattern
+
+- Keep `process_paper()` synchronous but accept `progress_callback(stage, progress)` so parse/chunk stages are observable without changing CLI callers.
+- In async ingestion workers, run heavy sync ingestion via `asyncio.to_thread(...)` and bridge callback updates back to DB with `asyncio.run_coroutine_threadsafe(...)` for durable stage/progress writes.
+- Use explicit monotonic stages: `queued -> parsing -> chunking -> storing -> finalizing -> completed/failed`.

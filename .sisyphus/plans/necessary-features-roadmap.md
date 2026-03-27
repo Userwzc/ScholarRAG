@@ -241,7 +241,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(api): add async ingestion job endpoints` | Files: `api/routes/papers.py`, new/updated service modules, `api/schemas.py`, tests
 
-- [ ] 4. Instrument ingestion pipeline with progress, terminal states, and manual retry safety
+- [x] 4. Instrument ingestion pipeline with progress, terminal states, and manual retry safety
 
   **What to do**: Thread progress reporting through parse → chunk → persist → finalize so every async ingestion job has durable stage/progress updates. Add a progress callback/reporting abstraction to `process_paper()` and the surrounding paper service, persist terminal success/failure details, and ensure manual retry reuses the staged source file while preventing duplicate concurrent execution of the same job. Set the default policy to manual retry only; no automatic backoff loop.
   **Must NOT do**: Do not add silent auto-retries. Do not mark a job `completed` before Qdrant write and PDF persistence both succeed. Do not leave jobs permanently in `processing` after exceptions.

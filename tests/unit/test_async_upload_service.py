@@ -1,5 +1,7 @@
+import asyncio
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -258,3 +260,147 @@ async def test_cleanup_staged_file_removes_directory(db_session: AsyncSession) -
     async_upload_service.cleanup_staged_file(create_result.job_id)
 
     assert not os.path.exists(job_dir)
+
+
+@pytest.mark.asyncio
+async def test_run_ingestion_job_persists_stage_progression_and_completes(
+    db_session: AsyncSession,
+) -> None:
+    file_content = b"%PDF-1.4 test content"
+    filename = "pipeline-test.pdf"
+
+    create_result = await async_upload_service.create_async_upload_job(
+        session=db_session,
+        file_content=file_content,
+        filename=filename,
+    )
+
+    observed_stages: list[tuple[str | None, int | None]] = []
+
+    async def _spy_update_ingestion_job(*args, **kwargs):
+        stage = kwargs.get("stage")
+        progress = kwargs.get("progress")
+        if stage is not None or progress is not None:
+            observed_stages.append((stage, progress))
+        return await original_update(*args, **kwargs)
+
+    def _fake_ingest(*args, **kwargs):
+        callback = kwargs["progress_callback"]
+        callback("parsing", 10)
+        callback("chunking", 35)
+        callback("storing", 65)
+        callback("finalizing", 90)
+        callback("completed", 100)
+        return {
+            "pdf_name": "pipeline-test",
+            "title": "Pipeline Test",
+            "authors": "Author",
+            "chunk_count": 3,
+        }
+
+    original_update = async_upload_service.ingestion_job_service.update_ingestion_job
+    with (
+        patch(
+            "api.services.paper_service.ingest_paper_file",
+            side_effect=_fake_ingest,
+        ),
+        patch(
+            "api.services.async_upload_service.ingestion_job_service.update_ingestion_job",
+            side_effect=_spy_update_ingestion_job,
+        ),
+    ):
+        await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
+
+    job = await get_ingestion_job(db_session, create_result.job_id)
+    assert job is not None
+    assert job.status == "completed"
+    assert job.stage == "completed"
+    assert job.progress == 100
+    assert job.result_summary is not None
+    assert json.loads(job.result_summary)["pdf_name"] == "pipeline-test"
+
+    stage_sequence = [stage for stage, _ in observed_stages if stage is not None]
+    assert stage_sequence == [
+        "parsing",
+        "parsing",
+        "chunking",
+        "storing",
+        "finalizing",
+        "completed",
+        "completed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_ingestion_job_marks_failed_and_preserves_staged_file_for_retry(
+    db_session: AsyncSession,
+) -> None:
+    file_content = b"%PDF-1.4 test content"
+    filename = "fail-test.pdf"
+
+    create_result = await async_upload_service.create_async_upload_job(
+        session=db_session,
+        file_content=file_content,
+        filename=filename,
+    )
+    job_before = await get_ingestion_job(db_session, create_result.job_id)
+    assert job_before is not None
+    staged_path = job_before.source_file_path
+
+    with patch(
+        "api.services.paper_service.ingest_paper_file",
+        side_effect=RuntimeError("x" * 1000),
+    ):
+        await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
+
+    failed_job = await get_ingestion_job(db_session, create_result.job_id)
+    assert failed_job is not None
+    assert failed_job.status == "failed"
+    assert failed_job.stage == "failed"
+    assert failed_job.error_message is not None
+    assert len(failed_job.error_message) == 500
+    assert os.path.exists(staged_path)
+
+
+@pytest.mark.asyncio
+async def test_run_ingestion_job_prevents_duplicate_processing_execution(
+    temp_db: dict,
+) -> None:
+    async with temp_db["session_maker"]() as setup_session:
+        file_content = b"%PDF-1.4 test content"
+        filename = "duplicate-test.pdf"
+        create_result = await async_upload_service.create_async_upload_job(
+            session=setup_session,
+            file_content=file_content,
+            filename=filename,
+        )
+        await setup_session.commit()
+
+    call_count = 0
+
+    def _fake_ingest(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        callback = kwargs["progress_callback"]
+        callback("parsing", 10)
+        callback("chunking", 35)
+        callback("storing", 65)
+        callback("finalizing", 90)
+        callback("completed", 100)
+        return {
+            "pdf_name": "duplicate-test",
+            "title": "Duplicate Test",
+            "authors": "Author",
+            "chunk_count": 2,
+        }
+
+    with patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest):
+        async with temp_db["session_maker"]() as session_one, temp_db["session_maker"]() as session_two:
+            await asyncio.gather(
+                async_upload_service.run_ingestion_job(session_one, create_result.job_id),
+                async_upload_service.run_ingestion_job(session_two, create_result.job_id),
+            )
+            await session_one.commit()
+            await session_two.commit()
+
+    assert call_count == 1

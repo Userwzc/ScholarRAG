@@ -1,7 +1,9 @@
 import asyncio
 import hashlib
 import os
+import re
 import shutil
+import threading
 import time
 import uuid
 from typing import Optional
@@ -20,10 +22,10 @@ from api.schemas import (
     IngestionJobRetryResponse,
 )
 from api.services import ingestion_job_service, paper_registry_service
-from config.settings import config
 
 STAGED_UPLOADS_DIR = os.path.join(API_UPLOAD_DIR, "staged")
-PDF_STORAGE_DIR = config.PDF_STORAGE_DIR
+_RUNNING_JOBS_LOCK = threading.Lock()
+_RUNNING_JOB_IDS: set[str] = set()
 
 
 def _now_ms() -> int:
@@ -38,6 +40,26 @@ def _generate_job_id(filename: str) -> str:
 
 def _ensure_staged_dir() -> None:
     os.makedirs(STAGED_UPLOADS_DIR, exist_ok=True)
+
+
+def _sanitize_error_message(error: Exception) -> str:
+    normalized = re.sub(r"\s+", " ", str(error)).strip()
+    if not normalized:
+        normalized = "Ingestion failed"
+    return normalized[:500]
+
+
+def _try_acquire_job_guard(job_id: str) -> bool:
+    with _RUNNING_JOBS_LOCK:
+        if job_id in _RUNNING_JOB_IDS:
+            return False
+        _RUNNING_JOB_IDS.add(job_id)
+        return True
+
+
+def _release_job_guard(job_id: str) -> None:
+    with _RUNNING_JOBS_LOCK:
+        _RUNNING_JOB_IDS.discard(job_id)
 
 
 def stage_uploaded_file(file_content: bytes, filename: str, job_id: str) -> str:
@@ -197,41 +219,54 @@ async def run_ingestion_job(
     session: AsyncSession,
     job_id: str,
 ) -> None:
-    from src.core.ingestion import process_paper
+    from api.services import paper_service
 
-    job = await ingestion_job_service.get_ingestion_job(session, job_id)
-    if job is None:
-        return
-
-    if job.status not in ("pending", "processing"):
+    if not _try_acquire_job_guard(job_id):
         return
 
     try:
-        await ingestion_job_service.update_ingestion_job(
-            session=session,
-            job_id=job_id,
-            status="processing",
-            stage="parsing",
-            progress=10,
+        job = await ingestion_job_service.get_ingestion_job(session, job_id)
+        if job is None:
+            return
+
+        if job.status == "processing":
+            return
+
+        if job.status != "pending":
+            return
+
+        async def _update_job_progress(stage: str, progress: int) -> None:
+            await ingestion_job_service.update_ingestion_job(
+                session=session,
+                job_id=job_id,
+                status="processing",
+                stage=stage,
+                progress=progress,
+                error_message=None,
+            )
+
+        await _update_job_progress("parsing", 10)
+
+        loop = asyncio.get_running_loop()
+
+        def _progress_callback(stage: str, progress: int) -> None:
+            future = asyncio.run_coroutine_threadsafe(
+                _update_job_progress(stage, progress),
+                loop,
+            )
+            future.result()
+
+        ingest_result = await asyncio.to_thread(
+            paper_service.ingest_paper_file,
+            file_path=job.source_file_path,
+            save_markdown=False,
+            progress_callback=_progress_callback,
         )
 
-        multimodal_inputs, metadata_list, parsed_data = process_paper(
-            job.source_file_path, save_markdown=False
-        )
-
-        await ingestion_job_service.update_ingestion_job(
-            session=session,
-            job_id=job_id,
-            stage="storing",
-            progress=50,
-        )
-
-        pdf_name = parsed_data.get("pdf_name", "")
-        paper_title = parsed_data.get("title", "Unknown Title")
-        authors_str = ""
-        if metadata_list:
-            authors_str = metadata_list[0].get("authors", "")
-            paper_title = metadata_list[0].get("title", paper_title)
+        pdf_name = ingest_result["pdf_name"]
+        paper_title = ingest_result["title"]
+        authors_str = ingest_result["authors"]
+        chunk_count = ingest_result["chunk_count"]
 
         paper = await paper_registry_service.get_paper_by_pdf_name(session, pdf_name)
         if paper:
@@ -240,23 +275,6 @@ async def run_ingestion_job(
             paper.updated_at = _now_ms()
             await session.flush()
 
-        os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
-        pdf_dest = os.path.join(PDF_STORAGE_DIR, f"{pdf_name}.pdf")
-        if os.path.exists(job.source_file_path) and not os.path.exists(pdf_dest):
-            shutil.copy(job.source_file_path, pdf_dest)
-
-        await ingestion_job_service.update_ingestion_job(
-            session=session,
-            job_id=job_id,
-            stage="indexing",
-            progress=70,
-        )
-
-        from src.rag.vector_store import get_vector_store
-
-        vector_store = get_vector_store()
-        vector_store.add_multimodal(multimodal_inputs, metadata_list)
-
         import json
 
         result_summary = json.dumps(
@@ -264,7 +282,7 @@ async def run_ingestion_job(
                 "pdf_name": pdf_name,
                 "title": paper_title,
                 "authors": authors_str,
-                "chunk_count": len(multimodal_inputs),
+                "chunk_count": chunk_count,
             }
         )
 
@@ -275,22 +293,21 @@ async def run_ingestion_job(
             stage="completed",
             progress=100,
             result_summary=result_summary,
+            error_message=None,
         )
 
         cleanup_staged_file(job_id)
 
-    except Exception as e:
-        error_msg = str(e)
-        if len(error_msg) > 500:
-            error_msg = error_msg[:500]
-
+    except Exception as error:
         await ingestion_job_service.update_ingestion_job(
             session=session,
             job_id=job_id,
             status="failed",
             stage="failed",
-            error_message=error_msg,
+            error_message=_sanitize_error_message(error),
         )
+    finally:
+        _release_job_guard(job_id)
 
 
 async def run_ingestion_job_background(job_id: str) -> None:

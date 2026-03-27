@@ -1,8 +1,6 @@
 import os
 import shutil
-from typing import Any, Optional
-
-from qdrant_client.http import models
+from typing import Any, Callable, Optional
 
 from api.config import API_UPLOAD_DIR
 from api.schemas import (
@@ -18,6 +16,8 @@ from config.settings import config
 
 PDF_STORAGE_DIR = config.PDF_STORAGE_DIR
 
+ProgressCallback = Callable[[str, int], None]
+
 
 def _get_vector_store():
     from src.rag.vector_store import get_vector_store
@@ -25,15 +25,71 @@ def _get_vector_store():
     return get_vector_store()
 
 
+def _emit_progress(
+    progress_callback: Optional[ProgressCallback],
+    stage: str,
+    progress: int,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(stage, max(0, min(progress, 100)))
+
+
+def _persist_pdf_for_reader(source_path: str, pdf_name: str) -> None:
+    os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
+    pdf_dest = os.path.join(PDF_STORAGE_DIR, f"{pdf_name}.pdf")
+    if os.path.exists(source_path) and not os.path.exists(pdf_dest):
+        shutil.copy(source_path, pdf_dest)
+
+
+def ingest_paper_file(
+    file_path: str,
+    save_markdown: bool = False,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> dict[str, Any]:
+    from src.core.ingestion import process_paper
+
+    multimodal_inputs, metadata_list, parsed_data = process_paper(
+        file_path,
+        save_markdown=save_markdown,
+        progress_callback=progress_callback,
+    )
+
+    pdf_name = parsed_data.get("pdf_name", "")
+    paper_title = parsed_data.get("title", "Unknown Title")
+    authors_str = ""
+
+    if metadata_list:
+        authors_str = metadata_list[0].get("authors", "")
+        paper_title = metadata_list[0].get("title", paper_title)
+
+    _emit_progress(progress_callback, "storing", 65)
+    vector_store = _get_vector_store()
+    vector_store.add_multimodal(multimodal_inputs, metadata_list)
+
+    _emit_progress(progress_callback, "finalizing", 90)
+    _persist_pdf_for_reader(file_path, pdf_name)
+
+    _emit_progress(progress_callback, "completed", 100)
+    return {
+        "pdf_name": pdf_name,
+        "title": paper_title,
+        "authors": authors_str,
+        "chunk_count": len(multimodal_inputs),
+    }
+
+
 def _build_filter(
     pdf_name: str = "", chunk_type: str | None = None
-) -> models.Filter | None:
+) -> Any | None:
     """构建 Qdrant Filter 对象。
 
     Returns:
         models.Filter 对象，无条件时返回 None
     """
-    must_conditions: list[models.Condition] = []
+    from qdrant_client.http import models  # type: ignore[reportMissingImports]
+
+    must_conditions: list[Any] = []
     if pdf_name:
         must_conditions.append(
             models.FieldCondition(
@@ -52,37 +108,13 @@ def _build_filter(
 
 
 def upload_paper(file_path: str) -> PaperUploadResponse:
-    from src.core.ingestion import process_paper
-
-    # Store PDF first (before vector store write)
-    os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
-
-    multimodal_inputs, metadata_list, parsed_data = process_paper(
-        file_path, save_markdown=False
-    )
-
-    pdf_name = parsed_data.get("pdf_name", "")
-    paper_title = parsed_data.get("title", "Unknown Title")
-    authors_str = ""
-
-    if metadata_list:
-        authors_str = metadata_list[0].get("authors", "")
-        paper_title = metadata_list[0].get("title", paper_title)
-
-    # Copy original PDF for reader functionality
-    pdf_dest = os.path.join(PDF_STORAGE_DIR, f"{pdf_name}.pdf")
-    if os.path.exists(file_path) and not os.path.exists(pdf_dest):
-        shutil.copy(file_path, pdf_dest)
-
-    # Now write to vector store
-    vector_store = _get_vector_store()
-    vector_store.add_multimodal(multimodal_inputs, metadata_list)
+    result = ingest_paper_file(file_path=file_path, save_markdown=False)
 
     return PaperUploadResponse(
-        pdf_name=pdf_name,
-        title=paper_title,
-        authors=authors_str,
-        chunk_count=len(multimodal_inputs),
+        pdf_name=result["pdf_name"],
+        title=result["title"],
+        authors=result["authors"],
+        chunk_count=result["chunk_count"],
         message="Paper uploaded and processed successfully",
     )
 

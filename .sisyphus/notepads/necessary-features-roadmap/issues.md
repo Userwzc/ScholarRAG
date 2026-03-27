@@ -72,3 +72,13 @@ def delete_paper(self, pdf_name: str) -> bool:
 **Fix:** Runtime verification done with pytest; LSP warnings documented for environment alignment follow-up.
 
 **Status:** OPEN
+
+## Issue 6: Pyright import diagnostics for qdrant_client in service module
+
+**Error:** `reportMissingImports` for `qdrant_client.http` in `paper_service.py`.
+
+**Cause:** LSP environment does not expose optional qdrant dependency path consistently for module-level imports.
+
+**Fix:** Moved qdrant import into `_build_filter()` and applied targeted type-ignore for missing-import diagnostics.
+
+**Status:** RESOLVED

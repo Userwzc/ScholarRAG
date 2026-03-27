@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.ingest.mineru_parser import MinerUParser
 from config.settings import config
@@ -10,13 +10,34 @@ logger = get_logger(__name__)
 
 INGESTION_SCHEMA_VERSION = 3
 
-def process_paper(pdf_path: str, save_markdown: bool = True) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+ProgressCallback = Callable[[str, int], None]
+
+
+def _emit_progress(
+    progress_callback: Optional[ProgressCallback],
+    stage: str,
+    progress: int,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(stage, max(0, min(progress, 100)))
+
+
+def process_paper(
+    pdf_path: str,
+    save_markdown: bool = True,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     Parses a PDF, chunks its content, and prepares multimodal inputs and metadatas for vector storage.
     Returns: (multimodal_inputs, metadata_list, parsed_data)
     """
     parser = MinerUParser(output_dir="./data/parsed", backend=config.MINERU_BACKEND)
+
+    _emit_progress(progress_callback, "parsing", 10)
     parsed_data = parser.parse_pdf(pdf_path)
+
+    _emit_progress(progress_callback, "chunking", 35)
     chunks_data, doc_metadata = parser.chunk_content(parsed_data)
 
     pdf_name = parsed_data.get("pdf_name", "")

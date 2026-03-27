@@ -114,3 +114,19 @@
 - Keeps route/service layering clean for follow-up tasks
 - Isolates state-transition logic for targeted unit tests
 - Avoids breaking current paper API behavior
+
+## Decision 8: In-Process Duplicate Job Execution Guard
+
+**Context:** Multiple background workers/threads could attempt to execute the same ingestion job concurrently.
+
+**Options:**
+1. Status check only (`job.status == processing`)
+2. DB-level compare-and-set lock
+3. In-process guard set + status checks
+
+**Decision:** Use in-process guard (`_RUNNING_JOB_IDS`) plus DB status check before processing.
+
+**Rationale:**
+- Prevents duplicate execution races in current single-process background thread model
+- Low-risk and minimal schema impact
+- Works alongside durable `status/stage/progress` transitions
