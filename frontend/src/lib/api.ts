@@ -369,3 +369,26 @@ export async function retryJob(jobId: string): Promise<IngestionJobRetryResponse
   if (!res.ok) throw new Error("Failed to retry job")
   return res.json()
 }
+
+// Paper version types
+export interface PaperVersion {
+  id: number
+  version_number: number
+  source_hash: string
+  created_at: number
+  is_current: boolean
+}
+
+// Paper version API methods
+export async function fetchVersions(pdfName: string): Promise<PaperVersion[]> {
+  const res = await fetch(`${API_BASE}/papers/${encodeURIComponent(pdfName)}/versions`)
+  if (!res.ok) throw new Error("Failed to fetch versions")
+  return res.json()
+}
+
+export async function reindexPaper(pdfName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/papers/${encodeURIComponent(pdfName)}/reindex`, {
+    method: "POST",
+  })
+  if (!res.ok) throw new Error("Failed to reindex paper")
+}

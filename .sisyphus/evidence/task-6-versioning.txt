@@ -1,11 +1,40 @@
-============================= test session starts ==============================
-platform linux -- Python 3.12.13, pytest-9.0.2, pluggy-1.6.0
-rootdir: /home/wzc/github/ScholarRAG
-configfile: pytest.ini
-plugins: anyio-4.13.0, langsmith-0.7.22, asyncio-1.3.0
+=== Task 6: Version Management Evidence ===
+
+Date: 2026年 03月 27日 星期五 21:46:57 CST
+
+Models:
+class PaperVersion(Base):
+    """论文版本实体。"""
+
+    __tablename__ = "paper_versions"
+    __table_args__ = (UniqueConstraint("paper_id", "version_number"),)
+
+
+Current Version Filtering:
+    current_only: bool,
+) -> models.Filter | None:
+    if not current_only:
+        return filter_obj
+
+    current_condition = models.FieldCondition(
+--
+        current_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """默认使用 hybrid retrieval 的向量搜索，返回原始 payload 格式。
+
+Tests:
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
-collected 13 items / 12 deselected / 1 selected
+collecting ... collected 10 items
 
-tests/unit/test_async_upload_service.py .                                [100%]
+tests/unit/test_regression_versioning.py::TestVersionMetadata::test_process_paper_includes_version_metadata PASSED [ 10%]
+tests/unit/test_regression_versioning.py::TestVersionMetadata::test_default_version_is_one PASSED [ 20%]
+tests/unit/test_regression_versioning.py::TestCurrentVersionFiltering::test_default_queries_only_return_current_version PASSED [ 30%]
+tests/unit/test_regression_versioning.py::TestCurrentVersionFiltering::test_version_override_returns_historical_chunks PASSED [ 40%]
+tests/unit/test_regression_versioning.py::TestVersionLeakDetection::test_no_version_leak_in_default_search PASSED [ 50%]
+tests/unit/test_regression_versioning.py::TestVersionLeakDetection::test_version_leak_check_function PASSED [ 60%]
+tests/unit/test_regression_versioning.py::TestVersionFlipping::test_reindex_creates_new_version_and_flips_current PASSED [ 70%]
+tests/unit/test_regression_versioning.py::TestVersionFlipping::test_multiple_reindexes_create_sequential_versions PASSED [ 80%]
+tests/unit/test_regression_versioning.py::TestVersionHistoryRetrieval::test_version_history_lists_all_versions PASSED [ 90%]
+tests/unit/test_regression_versioning.py::TestVersionHistoryRetrieval::test_version_history_includes_metadata PASSED [100%]
 
-======================= 1 passed, 12 deselected in 1.77s =======================
+============================== 10 passed in 2.39s ==============================

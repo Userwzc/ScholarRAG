@@ -1,11 +1,11 @@
 import { useState } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Trash2, Loader2, FileText, Image, Table, BookOpen } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, FileText, Image, Table, BookOpen, History, RefreshCw, Check } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
-import { fetchPaper, fetchChunks, deletePaper } from "../lib/api"
+import { fetchPaper, fetchChunks, deletePaper, fetchVersions, reindexPaper } from "../lib/api"
 import { cn } from "../lib/utils"
 
 export default function PaperDetailPage() {
@@ -26,6 +26,20 @@ export default function PaperDetailPage() {
     queryKey: ["chunks", pdfName, page, typeFilter],
     queryFn: () => fetchChunks(pdfName!, page, 20, typeFilter || undefined),
     enabled: !!pdfName,
+  })
+
+  const { data: versions, isLoading: versionsLoading } = useQuery({
+    queryKey: ["versions", pdfName],
+    queryFn: () => fetchVersions(pdfName!),
+    enabled: !!pdfName,
+  })
+
+  const reindexMutation = useMutation({
+    mutationFn: () => reindexPaper(pdfName!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["versions", pdfName] })
+      queryClient.invalidateQueries({ queryKey: ["chunks", pdfName] })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -113,6 +127,84 @@ export default function PaperDetailPage() {
               Delete Paper
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-8 overflow-hidden">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Version History
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => reindexMutation.mutate()}
+              disabled={reindexMutation.isPending}
+              className="rounded-xl"
+            >
+              {reindexMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-1.5" />
+              )}
+              重新索引
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {versionsLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : versions && versions.length > 0 ? (
+            <div className="space-y-2">
+              {versions.map((version) => (
+                <div
+                  key={version.id}
+                  className={cn(
+                    "flex items-center justify-between p-3 rounded-xl transition-colors",
+                    version.is_current
+                      ? "bg-primary/10 border border-primary/20"
+                      : "bg-secondary/30 hover:bg-secondary/50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "flex items-center justify-center h-8 w-8 rounded-lg text-sm font-medium",
+                      version.is_current
+                        ? "bg-primary/20 text-primary"
+                        : "bg-secondary text-muted-foreground"
+                    )}>
+                      v{version.version_number}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        Version {version.version_number}
+                        {version.is_current && (
+                          <span className="ml-2 text-xs text-primary font-normal flex items-center gap-1 inline-flex">
+                            <Check className="h-3 w-3" />
+                            当前版本
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(version.created_at * 1000).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    {version.source_hash.slice(0, 8)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No version history available
+            </p>
+          )}
         </CardContent>
       </Card>
 

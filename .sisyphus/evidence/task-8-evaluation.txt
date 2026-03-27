@@ -1,0 +1,36 @@
+=== Task 8: Evaluation Pipeline Evidence ===
+
+Date: 2026年 03月 27日 星期五 21:47:10 CST
+
+Metrics Implemented:
+def calculate_retrieval_hit_rate(results: list[QueryResult]) -> float:
+def calculate_page_hit_rate(results: list[QueryResult]) -> float:
+def calculate_keyword_match_rate(results: list[QueryResult]) -> float:
+def calculate_citation_coverage_rate(results: list[QueryResult]) -> float:
+def calculate_current_version_leak_rate(results: list[QueryResult]) -> float:
+def calculate_failed_query_rate(results: list[QueryResult]) -> float:
+def aggregate_metrics(results: list[QueryResult]) -> EvaluationMetrics:
+def check_citation_coverage(chunk: dict[str, Any]) -> bool:
+def check_version_leak(chunks: list[dict[str, Any]]) -> bool:
+def evaluate_thresholds(
+
+Runner:
+- tests/evaluation/runner.py
+- tests/evaluation/thresholds.json
+
+Tests:
+tests/evaluation/test_runner.py::TestVersionLeak::test_check_version_leak_detected PASSED [ 65%]
+tests/evaluation/test_runner.py::TestThresholdEvaluation::test_evaluate_thresholds_pass PASSED [ 68%]
+tests/evaluation/test_runner.py::TestThresholdEvaluation::test_evaluate_thresholds_fail PASSED [ 71%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_parse_threshold_arg PASSED [ 74%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_parse_threshold_arg_invalid PASSED [ 77%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_create_threshold_config_from_args PASSED [ 80%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_create_threshold_config_unknown_threshold PASSED [ 82%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_runner_with_mock_vector_store PASSED [ 85%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_runner_raises_on_empty_vector_store PASSED [ 88%]
+tests/evaluation/test_runner.py::TestEvaluationRunner::test_save_report PASSED [ 91%]
+tests/evaluation/test_runner.py::TestEvaluationReport::test_to_dict PASSED [ 94%]
+tests/evaluation/test_runner.py::TestRunnerIntegration::test_runner_with_real_vector_store SKIPPED [ 97%]
+tests/evaluation/test_runner.py::TestRunnerIntegration::test_runner_cli SKIPPED [100%]
+
+======================== 33 passed, 2 skipped in 0.03s =========================
