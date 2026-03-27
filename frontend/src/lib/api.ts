@@ -56,6 +56,10 @@ export interface Source {
   pdf_name: string
   page: number
   type: string
+  chunk_id?: string
+  paper_version?: number
+  heading?: string
+  supporting_text?: string
 }
 
 export interface MessageResponse {
@@ -281,5 +285,87 @@ export async function addMessage(
     }),
   })
   if (!res.ok) throw new Error("Failed to add message")
+  return res.json()
+}
+
+// Async upload job types
+export interface IngestionJobResult {
+  pdf_name: string
+  title: string
+  authors: string
+  chunk_count: number
+  paper_version?: number
+}
+
+export interface IngestionJobResponse {
+  job_id: string
+  status: "pending" | "processing" | "completed" | "failed"
+  stage: string
+  progress: number
+  retry_count: number
+  error_message?: string
+  result?: IngestionJobResult
+  created_at: number
+  updated_at: number
+}
+
+export interface IngestionJobListItem {
+  job_id: string
+  pdf_name: string
+  status: "pending" | "processing" | "completed" | "failed"
+  stage: string
+  progress: number
+  retry_count: number
+  created_at: number
+  updated_at: number
+}
+
+export interface IngestionJobListResponse {
+  jobs: IngestionJobListItem[]
+  total: number
+}
+
+export interface IngestionJobCreateResponse {
+  job_id: string
+  status: string
+  filename: string
+  message: string
+}
+
+export interface IngestionJobRetryResponse {
+  job_id: string
+  status: string
+  message: string
+}
+
+// Async upload API methods
+export async function uploadPaperAsync(file: File): Promise<IngestionJobCreateResponse> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const res = await fetch(`${API_BASE}/papers/uploads`, {
+    method: "POST",
+    body: formData,
+  })
+  if (!res.ok) throw new Error("Failed to start async upload")
+  return res.json()
+}
+
+export async function getJobStatus(jobId: string): Promise<IngestionJobResponse> {
+  const res = await fetch(`${API_BASE}/papers/uploads/${jobId}`)
+  if (!res.ok) throw new Error("Failed to get job status")
+  return res.json()
+}
+
+export async function listJobs(limit = 20): Promise<IngestionJobListResponse> {
+  const res = await fetch(`${API_BASE}/papers/uploads?limit=${limit}`)
+  if (!res.ok) throw new Error("Failed to list jobs")
+  return res.json()
+}
+
+export async function retryJob(jobId: string): Promise<IngestionJobRetryResponse> {
+  const res = await fetch(`${API_BASE}/papers/uploads/${jobId}/retry`, {
+    method: "POST",
+  })
+  if (!res.ok) throw new Error("Failed to retry job")
   return res.json()
 }

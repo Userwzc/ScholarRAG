@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, Loader2, Menu } from "lucide-react"
 import { Button } from "../components/ui/button"
@@ -9,11 +9,24 @@ import { ChatPanel } from "../components/reader/ChatPanel"
 import { SelectionToolbar } from "../components/reader/SelectionToolbar"
 import { getPdfUrl, fetchToc, fetchPaper } from "../lib/api"
 
+function useInitialPage(): number {
+  const [searchParams] = useSearchParams()
+  const pageParam = searchParams.get("page")
+  if (pageParam) {
+    const pageNum = parseInt(pageParam, 10) - 1
+    if (!isNaN(pageNum) && pageNum >= 0) {
+      return pageNum
+    }
+  }
+  return 0
+}
+
 export default function PaperReaderPage() {
   const { pdfName } = useParams<{ pdfName: string }>()
   const navigate = useNavigate()
+  const initialPage = useInitialPage()
 
-  const [currentPage, setCurrentPage] = useState(0)
+  const [currentPage, setCurrentPage] = useState(initialPage)
   const [tocCollapsed, setTocCollapsed] = useState(false)
   const [selection, setSelection] = useState<{ text: string; position: { x: number; y: number } } | null>(null)
   const [chatQuestion, setChatQuestion] = useState("")

@@ -372,7 +372,7 @@ Wave 2: productization + regression + automation
 
   **Commit**: YES | Message: `feat(rag): add version-aware reindex and current-version filtering` | Files: `src/rag/vector_store.py`, `src/core/ingestion.py`, `api/services/paper_service.py`, related routes/schemas/tests
 
-- [ ] 7. Update frontend upload, library, chat, and reader flows for jobs and deep-linked citations
+- [x] 7. Update frontend upload, library, chat, and reader flows for jobs and deep-linked citations
 
   **What to do**: Move `PapersPage` to the new async upload flow, show job progress/failure/retry state in the paper library UX, and replace ad-hoc source reconstruction in `QueryPage` with rendering from final structured provenance. Add click-through behavior from a citation to the reader route with page preselection, and teach `PaperReaderPage` to honor query parameters or equivalent navigation state so the cited page opens directly.
   **Must NOT do**: Do not keep using `alert()` as the primary async status surface for uploads. Do not require users to manually locate the cited page after clicking a citation. Do not break existing conversation persistence.

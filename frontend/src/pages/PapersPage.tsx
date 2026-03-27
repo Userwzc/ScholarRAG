@@ -1,20 +1,103 @@
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, FileText, Trash2, Loader2, Upload, BookOpen } from "lucide-react"
+import { Plus, FileText, Trash2, Loader2, Upload, BookOpen, RefreshCw, AlertCircle, CheckCircle2, Clock } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
-import { fetchPapers, deletePaper, uploadPaper } from "../lib/api"
+import { fetchPapers, deletePaper, uploadPaperAsync, getJobStatus, listJobs, retryJob, type IngestionJobListItem } from "../lib/api"
 import { cn } from "../lib/utils"
+
+type JobStatus = "pending" | "processing" | "completed" | "failed"
+
+interface JobWithStatus extends IngestionJobListItem {
+  filename?: string
+}
+
+function JobCard({ job, onRetry }: { job: JobWithStatus; onRetry: (jobId: string) => void }) {
+  const statusConfig: Record<JobStatus, { icon: typeof Clock; color: string; bg: string; label: string }> = {
+    pending: { icon: Clock, color: "text-muted-foreground", bg: "bg-secondary/50", label: "Queued" },
+    processing: { icon: Loader2, color: "text-primary", bg: "bg-primary/10", label: "Processing" },
+    completed: { icon: CheckCircle2, color: "text-green-600 dark:text-green-400", bg: "bg-green-500/10", label: "Completed" },
+    failed: { icon: AlertCircle, color: "text-destructive", bg: "bg-destructive/10", label: "Failed" },
+  }
+
+  const config = statusConfig[job.status]
+  const Icon = config.icon
+
+  return (
+    <Card className={cn("group card-hover", config.bg)}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start gap-3">
+          <div className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-xl border flex-shrink-0 transition-colors",
+            config.bg,
+            job.status === "processing" && "border-primary/30",
+            job.status === "failed" && "border-destructive/30",
+            job.status === "completed" && "border-green-500/30",
+          )}>
+            <Icon className={cn("h-5 w-5", config.color, job.status === "processing" && "animate-spin")} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-base line-clamp-1 leading-snug">
+              {job.filename || job.pdf_name || "Uploading..."}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{config.label}</p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {job.status === "processing" && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">{job.stage}</span>
+              <span className="font-mono">{job.progress}%</span>
+            </div>
+            <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary transition-all duration-300 rounded-full"
+                style={{ width: `${job.progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+        {job.status === "failed" && (
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex-1 rounded-xl"
+              onClick={() => onRetry(job.job_id)}
+            >
+              <RefreshCw className="h-3 w-3 mr-1.5" />
+              Retry
+            </Button>
+          </div>
+        )}
+        {job.status === "completed" && job.pdf_name && (
+          <Button variant="outline" size="sm" className="w-full rounded-xl" asChild>
+            <Link to={`/papers/${job.pdf_name}`}>View Paper</Link>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function PapersPage() {
   const queryClient = useQueryClient()
   const [isUploading, setIsUploading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
+  const [activeJobs, setActiveJobs] = useState<Map<string, JobWithStatus>>(new Map())
 
   const { data: papers = [], isLoading } = useQuery({
     queryKey: ["papers"],
     queryFn: fetchPapers,
+  })
+
+  const { data: jobsData } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: () => listJobs(20),
+    refetchInterval: 2000,
   })
 
   const deleteMutation = useMutation({
@@ -24,20 +107,108 @@ export default function PapersPage() {
     },
   })
 
+  const retryMutation = useMutation({
+    mutationFn: retryJob,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] })
+    },
+  })
+
+  useEffect(() => {
+    if (jobsData?.jobs) {
+      setActiveJobs(prev => {
+        const newJobs = new Map<string, JobWithStatus>()
+        for (const job of jobsData.jobs) {
+          if (job.status !== "completed" || prev.has(job.job_id)) {
+            newJobs.set(job.job_id, job)
+          }
+        }
+        return newJobs
+      })
+    }
+  }, [jobsData])
+
+  const pollJobStatus = useCallback(async (jobId: string, filename: string) => {
+    const poll = async () => {
+      try {
+        const job = await getJobStatus(jobId)
+        const existingJob = activeJobs.get(jobId)
+        setActiveJobs(prev => {
+          const next = new Map(prev)
+          next.set(jobId, { 
+            job_id: jobId,
+            pdf_name: job.result?.pdf_name || existingJob?.pdf_name || "",
+            status: job.status,
+            stage: job.stage,
+            progress: job.progress,
+            retry_count: job.retry_count,
+            created_at: job.created_at,
+            updated_at: job.updated_at,
+            filename,
+          })
+          return next
+        })
+
+        if (job.status === "processing") {
+          setTimeout(poll, 1000)
+        } else if (job.status === "completed") {
+          queryClient.invalidateQueries({ queryKey: ["papers"] })
+          setTimeout(() => {
+            setActiveJobs(prev => {
+              const next = new Map(prev)
+              next.delete(jobId)
+              return next
+            })
+          }, 3000)
+        } else if (job.status === "failed") {
+          queryClient.invalidateQueries({ queryKey: ["jobs"] })
+        }
+      } catch (error) {
+        console.error("Failed to poll job status:", error)
+      }
+    }
+    poll()
+  }, [queryClient, activeJobs])
+
   const handleUpload = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
-      alert("Only PDF files are supported")
       return
     }
     setIsUploading(true)
     try {
-      await uploadPaper(file)
-      queryClient.invalidateQueries({ queryKey: ["papers"] })
+      const result = await uploadPaperAsync(file)
+      setActiveJobs(prev => {
+        const next = new Map(prev)
+        next.set(result.job_id, {
+          job_id: result.job_id,
+          pdf_name: "",
+          status: "pending",
+          stage: "queued",
+          progress: 0,
+          retry_count: 0,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          filename: file.name,
+        })
+        return next
+      })
+      pollJobStatus(result.job_id, file.name)
     } catch (error) {
       console.error("Upload failed:", error)
-      alert("Upload failed. Please try again.")
     } finally {
       setIsUploading(false)
+    }
+  }
+
+  const handleRetry = async (jobId: string) => {
+    try {
+      await retryMutation.mutateAsync(jobId)
+      const job = activeJobs.get(jobId)
+      if (job) {
+        pollJobStatus(jobId, job.filename || job.pdf_name)
+      }
+    } catch (error) {
+      console.error("Retry failed:", error)
     }
   }
 
@@ -52,6 +223,11 @@ export default function PapersPage() {
     const file = e.target.files?.[0]
     if (file) handleUpload(file)
   }
+
+  const inProgressJobs = Array.from(activeJobs.values()).filter(
+    job => job.status === "pending" || job.status === "processing"
+  )
+  const failedJobs = Array.from(activeJobs.values()).filter(job => job.status === "failed")
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-8">
@@ -113,6 +289,22 @@ export default function PapersPage() {
           </div>
         </div>
       </div>
+
+      {(inProgressJobs.length > 0 || failedJobs.length > 0) && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            {inProgressJobs.length > 0 && (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            )}
+            {inProgressJobs.length > 0 ? "Processing" : "Failed Jobs"}
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[...inProgressJobs, ...failedJobs].map((job) => (
+              <JobCard key={job.job_id} job={job} onRetry={handleRetry} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center py-16">

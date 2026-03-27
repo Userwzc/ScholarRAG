@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { Link } from "react-router-dom"
 import ReactMarkdown from "react-markdown"
 import remarkMath from "remark-math"
 import rehypeKatex from "rehype-katex"
@@ -8,10 +9,10 @@ import {
   ArrowDownCircle, PanelLeftClose, PanelLeft, MessageSquarePlus
 } from "lucide-react"
 import { Button } from "../components/ui/button"
-import { createQueryStream, type SSEEvent, type MessageHistory } from "../lib/api"
+import { createQueryStream, type SSEEvent, type MessageHistory, type Source } from "../lib/api"
 import { ThoughtProcess, type AgentStep } from "../components/query/ThoughtProcess"
 import { ConversationSidebar } from "../components/query/ConversationSidebar"
-import { useConversationStore, type Message, type Source } from "../stores/conversation-store"
+import { useConversationStore, type Message } from "../stores/conversation-store"
 import { cn } from "../lib/utils"
 
 const MAX_HISTORY_MESSAGES = 10
@@ -132,9 +133,7 @@ export default function QueryPage() {
     setCurrentSources([])
 
     let answerBuffer = ""
-    const collectedSources: Source[] = []
-    
-    // 构建历史消息（排除刚添加的用户消息）
+
     const history = buildHistory()
 
     const cleanup = createQueryStream(
@@ -156,30 +155,18 @@ export default function QueryPage() {
           }])
         } else if (eventType === "tool_result") {
           const count = event.count as number
-          const pages = event.pages as string[]
-          const kind = event.kind as string
           setCurrentSteps(prev => [...prev, { 
             type: "tool_result", 
             count, 
-            pages,
             text: `Found ${count} result(s)`
           }])
-          pages?.forEach((page) => {
-            const [pdf_name, pageStr] = page.split(":")
-            const pageNum = parseInt(pageStr, 10)
-            if (!isNaN(pageNum)) {
-              if (!collectedSources.some(s => s.pdf_name === pdf_name && s.page === pageNum)) {
-                collectedSources.push({ pdf_name, page: pageNum, type: kind })
-                setCurrentSources([...collectedSources])
-              }
-            }
-          })
         } else if (eventType === "agent_observation") {
           setCurrentSteps(prev => [...prev, { type: "observation", text: event.text as string }])
         } else if (eventType === "agent_visual_context") {
+          const pages = event.pages as string[] | undefined
           setCurrentSteps(prev => [...prev, { 
             type: "agent_visual_context", 
-            text: `Attached ${event.count} visual evidence(s) from ${event.pages?.[0] || 'the paper'}`
+            text: `Attached ${event.count as number} visual evidence(s) from ${pages?.[0] || 'the paper'}`
           }])
         } else if (eventType === "answer_token") {
           answerBuffer += (event.text as string)
@@ -189,12 +176,14 @@ export default function QueryPage() {
         } else if (eventType === "answer_done") {
           setIsLoading(false)
           
+          const finalSources: Source[] = (event.sources as Source[] | undefined) || []
+          
           const assistantMessage: Message = {
             id: (Date.now() + 1).toString(),
             role: "assistant",
             content: answerBuffer,
             steps: [...currentSteps],
-            sources: [...collectedSources],
+            sources: finalSources,
             createdAt: Date.now(),
           }
           addMessage(conversationId, assistantMessage)
@@ -335,9 +324,10 @@ export default function QueryPage() {
                     {msg.sources && msg.sources.length > 0 && (
                       <div className="flex flex-wrap gap-2 px-1">
                         {msg.sources.map((source, sidx) => (
-                          <div
+                          <Link
                             key={sidx}
-                            className="flex items-center gap-1.5 text-[10px] bg-secondary/60 border border-border/40 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:border-primary/30 hover:bg-secondary transition-all duration-200"
+                            to={`/papers/${source.pdf_name}/read?page=${source.page}`}
+                            className="flex items-center gap-1.5 text-[10px] bg-secondary/60 border border-border/40 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:border-primary/30 hover:bg-secondary transition-all duration-200 cursor-pointer"
                           >
                             {source.type === "visual_search"
                               ? <Table className="h-3 w-3" />
@@ -345,7 +335,7 @@ export default function QueryPage() {
                             }
                             <span className="font-medium">{source.pdf_name}.pdf</span>
                             <span className="text-muted-foreground/60">p.{source.page}</span>
-                          </div>
+                          </Link>
                         ))}
                       </div>
                     )}

@@ -20,6 +20,10 @@ export interface Source {
   pdf_name: string
   page: number
   type: string
+  chunk_id?: string
+  paper_version?: number
+  heading?: string
+  supporting_text?: string
 }
 
 export interface Message {
@@ -143,6 +147,10 @@ export const useConversationStore = create<ConversationState>()(
               pdf_name: s.pdf_name,
               page: s.page,
               type: s.type,
+              chunk_id: s.chunk_id,
+              paper_version: s.paper_version,
+              heading: s.heading,
+              supporting_text: s.supporting_text,
             })),
             createdAt: m.created_at,
           }))

@@ -149,3 +149,47 @@ tests/
 
 - `run_ingestion_job()` should create and link a `PaperVersion` row before final job completion, and include the version number in job result summaries.
 - After successful reindex writes, mark previous-version vector payloads `is_current=false` to align vector-store retrieval with version lifecycle state.
+
+## Task 7 Learning: Frontend Async Upload Job UI
+
+- Use `useSearchParams` from react-router-dom to read query parameters for deep-linking
+- Avoid calling setState in useEffect - use a custom hook to compute initial state from URL params
+- When spreading API response types into UI types, ensure all required fields are present
+- `IngestionJobResponse` has `result.pdf_name` while `IngestionJobListItem` has `pdf_name` directly - need to map between them
+- Use TanStack Query's `refetchInterval` for polling job status instead of manual intervals
+- Job cards should show progress bar for processing state, retry button for failed state
+
+## Task 7 Learning: Citation Deep-Link Pattern
+
+- Use Link component from react-router-dom with query params: `to={\`/papers/\${pdf_name}/read?page=\${page}\`}`
+- Page numbers in URLs are 1-indexed (user-facing), but PDF viewer uses 0-indexed internally
+- Convert page param: `parseInt(pageParam, 10) - 1`
+- Sources from backend `answer_done` event include structured provenance (chunk_id, paper_version, heading, supporting_text)
+
+## Task 7 Learning: Conversation Store Source Type Extension
+
+- Extend Source interface with optional provenance fields: chunk_id, paper_version, heading, supporting_text
+- Update loadConversationMessages mapping to include new fields
+- Backend MessageResponse.sources uses SourceSchema which already has these fields
+
+## Task 7 Learning: Frontend Async Upload Job UI
+
+- Use useSearchParams from react-router-dom to read query parameters for deep-linking
+- Avoid calling setState in useEffect - use a custom hook to compute initial state from URL params
+- When spreading API response types into UI types, ensure all required fields are present
+- IngestionJobResponse has result.pdf_name while IngestionJobListItem has pdf_name directly - need to map between them
+- Use TanStack Query refetchInterval for polling job status instead of manual intervals
+- Job cards should show progress bar for processing state, retry button for failed state
+
+## Task 7 Learning: Citation Deep-Link Pattern
+
+- Use Link component from react-router-dom with query params for deep-linking
+- Page numbers in URLs are 1-indexed (user-facing), but PDF viewer uses 0-indexed internally
+- Convert page param: parseInt(pageParam, 10) - 1
+- Sources from backend answer_done event include structured provenance (chunk_id, paper_version, heading, supporting_text)
+
+## Task 7 Learning: Conversation Store Source Type Extension
+
+- Extend Source interface with optional provenance fields: chunk_id, paper_version, heading, supporting_text
+- Update loadConversationMessages mapping to include new fields
+- Backend MessageResponse.sources uses SourceSchema which already has these fields

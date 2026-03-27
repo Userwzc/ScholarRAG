@@ -8,7 +8,8 @@
     "ses_2d13d1a7dffe8wHXbCJJ3emhcQ",
     "ses_2d12eea0bffexrb2zLwrROa9ez",
     "ses_2d12601c5ffe8G2Q6KrkObhSP2",
-    "ses_2d0e67287ffex1hOwaxemVrTmn"
+    "ses_2d0e67287ffex1hOwaxemVrTmn",
+    "ses_2d0d9963fffelhsEJWdNQ8ZadR"
   ],
   "plan_name": "necessary-features-roadmap",
   "agent": "atlas",
@@ -66,6 +67,15 @@
       "agent": "Sisyphus-Junior",
       "category": "deep",
       "updated_at": "2026-03-27T11:52:20.826Z"
+    },
+    "todo:7": {
+      "task_key": "todo:7",
+      "task_label": "7",
+      "task_title": "Update frontend upload, library, chat, and reader flows for jobs and deep-linked citations",
+      "session_id": "ses_2d0d9963fffelhsEJWdNQ8ZadR",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "updated_at": "2026-03-27T12:08:54.939Z"
     }
   }
 }
