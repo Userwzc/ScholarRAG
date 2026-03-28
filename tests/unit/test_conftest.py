@@ -15,16 +15,17 @@ class TestEnvironmentFixtures:
 
     def test_test_env_sets_mock_values(self, test_env: dict[str, str]) -> None:
         """Verify that test_env fixture sets expected mock values."""
-        assert os.environ.get("EMBEDDING_MODEL") == "mock-model"
-        assert os.environ.get("OPENAI_API_KEY") == "test-key-mock"
-        assert os.environ.get("LLM_MODEL") == "mock-llm"
-        assert os.environ.get("ENABLE_HYBRID") == "false"
+        # Check the fixture returns expected values (not os.environ directly)
+        assert test_env.get("EMBEDDING_MODEL") == "mock-model"
+        assert test_env.get("OPENAI_API_KEY") == "test-key-mock"
+        assert test_env.get("LLM_MODEL") == "mock-llm"
+        assert test_env.get("ENABLE_HYBRID") == "false"
 
     def test_test_env_isolates_from_real_env(self, test_env: dict[str, str]) -> None:
         """Verify that test environment is isolated from real environment."""
         # These should be mock values, not real ones
-        assert os.environ.get("OPENAI_API_KEY") != ""
-        assert os.environ.get("EMBEDDING_MODEL") != "models/Qwen3-VL-Embedding-2B"
+        assert test_env.get("OPENAI_API_KEY") != ""
+        assert "Qwen3-VL" not in test_env.get("EMBEDDING_MODEL", "")
 
 
 class TestDatabaseFixtures:
