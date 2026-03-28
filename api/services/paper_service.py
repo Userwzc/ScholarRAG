@@ -1,5 +1,6 @@
 import os
 import shutil
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -97,6 +98,7 @@ def _build_filter(
     try:
         from qdrant_client.http import models  # type: ignore[reportMissingImports]
     except ImportError:
+
         @dataclass
         class _MatchValue:
             value: Any
@@ -143,6 +145,16 @@ def _build_filter(
 
 
 def upload_paper(file_path: str) -> PaperUploadResponse:
+    """⚠️ 已废弃: 请使用异步上传服务
+
+    此同步方法会阻塞直到处理完成，不适合大文件。
+    请迁移到: api/services/async_upload_service.py
+    """
+    warnings.warn(
+        "upload_paper() is deprecated. Use async_upload_service.create_async_upload_job() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     result = ingest_paper_file(file_path=file_path, save_markdown=False)
 
     return PaperUploadResponse(
@@ -186,7 +198,9 @@ def list_papers(version: Optional[int] = None) -> list[PaperItem]:
     return [PaperItem(**paper) for paper in papers]
 
 
-def get_paper_detail(pdf_name: str, version: Optional[int] = None) -> Optional[PaperDetail]:
+def get_paper_detail(
+    pdf_name: str, version: Optional[int] = None
+) -> Optional[PaperDetail]:
     vector_store = _get_vector_store()
 
     qdrant_filter = _build_filter(pdf_name=pdf_name, paper_version=version)
@@ -310,7 +324,9 @@ def get_pdf_path(pdf_name: str) -> Optional[str]:
     return None
 
 
-def get_paper_toc(pdf_name: str, version: Optional[int] = None) -> Optional[TOCResponse]:
+def get_paper_toc(
+    pdf_name: str, version: Optional[int] = None
+) -> Optional[TOCResponse]:
     vector_store = _get_vector_store()
 
     qdrant_filter = _build_filter(pdf_name=pdf_name, paper_version=version)
