@@ -708,19 +708,10 @@ def assert_valid_chunk_response(response: dict[str, Any]) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_test_files() -> Generator[None, None, None]:
-    """
-    Clean up test files after all tests complete.
+    yield
 
-    This fixture runs after the entire test session to remove:
-    - Staged upload files in data/uploads/staged/
-    - Temporary PDF storage files
-    """
-    yield  # Run tests first
-
-    # Cleanup after all tests
     import shutil
 
-    # Clean staged uploads directory
     staged_dir = Path("data/uploads/staged")
     if staged_dir.exists():
         for item in staged_dir.iterdir():
@@ -732,7 +723,26 @@ def cleanup_test_files() -> Generator[None, None, None]:
             except Exception as e:
                 print(f"Warning: Could not remove {item}: {e}")
 
-    # Clean temp PDF storage
     pdf_storage = Path("/tmp/scholarrag_test_pdfs")
     if pdf_storage.exists():
         shutil.rmtree(pdf_storage, ignore_errors=True)
+
+    try:
+        from api.database import async_session_maker
+        from api.models import Conversation, IngestionJob, Message, Paper, PaperVersion
+        from sqlalchemy import delete
+
+        async def cleanup_db():
+            async with async_session_maker() as session:
+                await session.execute(delete(Message))
+                await session.execute(delete(Conversation))
+                await session.execute(delete(IngestionJob))
+                await session.execute(delete(PaperVersion))
+                await session.execute(delete(Paper))
+                await session.commit()
+
+        import asyncio
+
+        asyncio.run(cleanup_db())
+    except Exception as e:
+        print(f"Warning: Could not clean database: {e}")
