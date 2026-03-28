@@ -18,3 +18,26 @@ bandit[toml]>=1.7.0,<2.0.0
 pytest>=7.4.0,<8.0.0
 pytest-asyncio>=0.21.0,<0.24.0
 pytest-cov>=4.1.0,<5.0.0
+
+# =============================================================================
+# 依赖对齐说明
+# =============================================================================
+# 当前环境状态 (2026-03-28):
+# - langchain==1.2.13 (未在 requirements.txt 中列出，但与现有包冲突)
+# - langchain-core==0.2.43 (requirements.txt 约束: >=0.1.0,<2.0.0)
+# 
+# 冲突解决建议（选择其一）:
+# 选项 A: 卸载 langchain 主包（推荐，如果代码不直接使用它）
+#   pip uninstall langchain -y
+#
+# 选项 B: 升级 langchain-core 以匹配 langchain 1.2.13
+#   pip install "langchain-core>=1.2.10,<2.0.0"
+#   # 注意: 这可能会影响其他 langchain 子包的兼容性
+#
+# 选项 C: 降级 langchain 到 0.x 版本
+#   pip install "langchain<1.0.0"
+#
+# 其他冲突:
+# - numpy==1.26.4 与 cupy-cuda12x、opencv-python-headless 的 numpy>=2.0 要求冲突
+#   解决方案: 这些包不在 requirements.txt 中，如需 numpy 2.x 请手动升级
+# =============================================================================
