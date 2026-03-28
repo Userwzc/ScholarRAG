@@ -1,75 +1,31 @@
 from __future__ import annotations
 
 import importlib
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-# ============================================================================
-# Mock torch and heavy dependencies BEFORE importing vector_store
-# This allows tests to run in CI without torch/GPU installed
-# ============================================================================
-if "torch" not in sys.modules:
-    sys.modules["torch"] = MagicMock()
+import pytest
 
-if "langchain_qdrant" not in sys.modules:
-    sys.modules["langchain_qdrant"] = MagicMock()
-
-if "qdrant_client" not in sys.modules:
-    sys.modules["qdrant_client"] = MagicMock()
-
-if "qdrant_client.http" not in sys.modules:
-    sys.modules["qdrant_client.http"] = MagicMock()
-
-if "qdrant_client.http.models" not in sys.modules:
-    sys.modules["qdrant_client.http.models"] = MagicMock()
-
-# Create a mock vector_store module
-_mock_vector_store_module = types.ModuleType("src.rag.vector_store")
-
-# Mock RetrievalMode enum
-class _MockRetrievalMode:
-    DENSE = "dense"
-    SPARSE = "sparse"
-    HYBRID = "hybrid"
-
-_mock_vector_store_module.RetrievalMode = _MockRetrievalMode()
-
-# Mock config
-_mock_config = types.SimpleNamespace()
-_mock_config.EMBEDDING_BATCH_SIZE = 32
-_mock_vector_store_module.config = _mock_config
-
-# Mock QdrantClient
-_mock_vector_store_module.QdrantClient = MagicMock()
-
-# Mock _qdrant_client singleton
-_mock_vector_store_module._qdrant_client = None
-
-def _mock_get_qdrant_client():
-    if _mock_vector_store_module._qdrant_client is None:
-        _mock_vector_store_module._qdrant_client = MagicMock()
-    return _mock_vector_store_module._qdrant_client
-
-_mock_vector_store_module._get_qdrant_client = _mock_get_qdrant_client
-
-# Create mock MultimodalQdrantStore class
-class _MockMultimodalQdrantStore:
-    pass
-
-_mock_vector_store_module.MultimodalQdrantStore = _MockMultimodalQdrantStore
-
-# Install mock modules
-sys.modules["src.rag.vector_store"] = _mock_vector_store_module
-sys.modules["src.rag"] = types.ModuleType("src.rag")
-sys.modules["src.rag.vector_store"] = _mock_vector_store_module
-
-# Now safe to import - gets our mock
-from src.rag.vector_store import MultimodalQdrantStore  # noqa: E402
+# Check if torch is available - skip all tests if not
+try:
+    import torch  # noqa: F401
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 
-def _build_store_for_similarity_search() -> MultimodalQdrantStore:
+pytestmark = pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="torch not installed - skipping vector store optimization tests"
+)
+
+
+# Only import if torch is available
+if TORCH_AVAILABLE:
+    from src.rag.vector_store import MultimodalQdrantStore
+
+
+def _build_store_for_similarity_search() -> "MultimodalQdrantStore":
     store = object.__new__(MultimodalQdrantStore)
     store.collection_name = "papers"
     store.content_payload_key = "page_content"
@@ -78,8 +34,8 @@ def _build_store_for_similarity_search() -> MultimodalQdrantStore:
     return store
 
 
-def _build_store_for_add_multimodal() -> MultimodalQdrantStore:
-    from src.rag import vector_store as vector_store_module  # noqa: F401
+def _build_store_for_add_multimodal() -> "MultimodalQdrantStore":
+    from src.rag import vector_store as vector_store_module
 
     store = object.__new__(MultimodalQdrantStore)
     store.collection_name = "papers"
@@ -113,7 +69,7 @@ def test_similarity_search_no_n_plus_1() -> None:
     _ = store.similarity_search("query", k=10)
 
     assert store.similarity_search_with_score.call_count == 1
-    assert store.client.retrieve.call_count <= 1
+    assert store._client.retrieve.call_count <= 1
 
 
 def test_add_multimodal_uses_config_embedding_batch_size(monkeypatch) -> None:
@@ -131,7 +87,7 @@ def test_add_multimodal_uses_config_embedding_batch_size(monkeypatch) -> None:
         len(call.args[0]) for call in store._embeddings.embed_documents.call_args_list
     ]
     assert batch_sizes == [32, 1]
-    assert store.client.upsert.call_count == 2
+    assert store._client.upsert.call_count == 2
 
 
 def test_add_multimodal_explicit_batch_size_overrides_config(monkeypatch) -> None:
@@ -168,20 +124,22 @@ def test_qdrant_client_singleton_reuse(monkeypatch) -> None:
 
 
 def test_graph_llm_reuse(monkeypatch) -> None:
-    fake_tooling_module = types.ModuleType("src.agent.tooling")
+    import sys
+
+    fake_tooling_module = type(sys)("src.agent.tooling")
     setattr(fake_tooling_module, "AGENT_TOOLS", [])
     setattr(fake_tooling_module, "TOOL_REGISTRY", {})
     monkeypatch.setitem(sys.modules, "src.agent.tooling", fake_tooling_module)
 
-    fake_resilience_module = types.ModuleType("src.utils.resilience")
+    fake_resilience_module = type(sys)("src.utils.resilience")
     setattr(fake_resilience_module, "call_with_circuit_breaker", lambda fn, *a, **k: fn(*a, **k))
     monkeypatch.setitem(sys.modules, "src.utils.resilience", fake_resilience_module)
 
-    fake_langgraph_agent = types.ModuleType("src.agent.langgraph_agent")
+    fake_langgraph_agent = type(sys)("src.agent.langgraph_agent")
     setattr(fake_langgraph_agent, "agent_app", MagicMock())
     monkeypatch.setitem(sys.modules, "src.agent.langgraph_agent", fake_langgraph_agent)
 
-    fake_evidence_builder = types.ModuleType("src.agent.evidence_builder")
+    fake_evidence_builder = type(sys)("src.agent.evidence_builder")
     setattr(fake_evidence_builder, "build_structured_provenance", lambda _: {})
     setattr(fake_evidence_builder, "collect_evidence", lambda _: [])
     setattr(fake_evidence_builder, "enrich_evidence", lambda x: x)
