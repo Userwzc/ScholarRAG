@@ -116,8 +116,12 @@ python -m tests.evaluation.runner \
 ## CI Integration
 
 GitHub Actions runs:
-1. `ruff check .`
-2. `pytest tests -k "not integration"` (unit tests only)
-3. `python -m tests.evaluation.runner` (non-blocking)
+1. `ruff check .` — Backend lint
+2. `ruff format --check .` — Backend format check  
+3. `bandit -r src/ -ll` — Security scan
+4. `pytest tests -k "not integration"` (unit tests only)
+5. `npm run lint` — Frontend lint (no tests currently)
+6. `npm run build` — Frontend build
+7. `python -m tests.evaluation.runner` (non-blocking, `continue-on-error: true`)
 
 See `.github/workflows/ci.yml` for full pipeline.

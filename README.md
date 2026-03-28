@@ -322,13 +322,16 @@ curl http://localhost:8000/metrics
 
 ```yaml
 # .github/workflows/ci.yml
-- 后端代码检查 (ruff)
-- 后端测试 (pytest)
-- 评估流水线 (evaluation runner)
+- 后端代码检查 (ruff + bandit)
+- 后端测试 (pytest with coverage)
+- 评估流水线 (evaluation runner, non-blocking)
+- 前端代码检查 (npm run lint)
 - 前端构建 (npm run build)
 ```
 
 每次提交到 main 分支或创建 PR 时自动运行。
+
+**注意：** 前端 CI 当前不包含自动化测试（尚未配置测试框架）。评估流水线配置为 `continue-on-error: true`，失败不会阻断构建。
 
 ---
 
@@ -354,7 +357,7 @@ python -m tests.evaluation.runner \
 
 ### 阈值配置
 
-在 `tests/evaluation/thresholds.json` 中配置各项指标的阈值。未达标的指标会导致 CI 失败。
+在 `tests/evaluation/thresholds.json` 中配置各项指标的阈值。评估流水线配置为 `continue-on-error: true`，未达标不会导致 CI 失败（仅生成报告供参考）。
 
 ---
 
