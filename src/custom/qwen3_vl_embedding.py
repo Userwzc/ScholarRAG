@@ -162,7 +162,7 @@ class Qwen3VLEmbedder(Qwen3VLBase):
         self.model = Qwen3VLForEmbedding.from_pretrained(
             model_name_or_path, trust_remote_code=True, **kwargs
         ).to(device)
-        self.processor = Qwen3VLProcessor.from_pretrained(
+        self.processor = Qwen3VLProcessor.from_pretrained(  # nosec B615: Model path is user-configurable; revision pinning is optional
             model_name_or_path, padding_side="right"
         )
         self.model.eval()

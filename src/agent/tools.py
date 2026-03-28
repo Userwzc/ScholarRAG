@@ -52,7 +52,7 @@ def _evidence_id(
     raw = "\x00".join(
         [pdf_name, str(page_idx), chunk_type, text[:500], img_path]
     ).encode("utf-8")
-    return hashlib.sha1(raw).hexdigest()[:16]
+    return hashlib.sha1(raw).hexdigest()[:16]  # nosec B324: SHA1 is used for content addressing, not cryptographic security
 
 
 class SearchPapersInput(BaseModel):
