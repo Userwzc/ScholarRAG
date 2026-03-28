@@ -135,7 +135,11 @@ async def temp_db() -> AsyncGenerator[dict[str, Any], None]:
     """
     # Check if sqlalchemy is available
     try:
-        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        from sqlalchemy.ext.asyncio import (
+            AsyncSession,
+            async_sessionmaker,
+            create_async_engine,
+        )
     except ImportError:
         pytest.skip("sqlalchemy not installed")
         return
@@ -311,7 +315,9 @@ class MockVectorStore:
             if key.startswith("metadata."):
                 key = key[9:]  # Remove "metadata." prefix
 
-            match_value = condition.match.value if hasattr(condition.match, "value") else None
+            match_value = (
+                condition.match.value if hasattr(condition.match, "value") else None
+            )
             return metadata.get(key) == match_value
         return True
 
@@ -441,7 +447,9 @@ def mock_vector_store() -> MockVectorStore:
 
 
 @pytest.fixture
-def mock_get_vector_store(mock_vector_store: MockVectorStore) -> Generator[MagicMock, None, None]:
+def mock_get_vector_store(
+    mock_vector_store: MockVectorStore,
+) -> Generator[MagicMock, None, None]:
     """
     Mock the get_vector_store function to return a mock vector store.
 
@@ -458,7 +466,9 @@ def mock_get_vector_store(mock_vector_store: MockVectorStore) -> Generator[Magic
 
 
 @pytest.fixture
-def mock_paper_service_vector_store(mock_vector_store: MockVectorStore) -> Generator[MagicMock, None, None]:
+def mock_paper_service_vector_store(
+    mock_vector_store: MockVectorStore,
+) -> Generator[MagicMock, None, None]:
     """
     Mock vector store for paper_service module.
 
@@ -486,10 +496,17 @@ def sample_paper_payload() -> dict[str, Any]:
     """
     return {
         "multimodal_inputs": [
-            {"text": "Abstract: This paper presents a novel approach to machine learning."},
-            {"text": "1. Introduction\nMachine learning has become a fundamental tool..."},
+            {
+                "text": "Abstract: This paper presents a novel approach to machine learning."
+            },
+            {
+                "text": "1. Introduction\nMachine learning has become a fundamental tool..."
+            },
             {"text": "2. Methodology\nWe propose a new framework for..."},
-            {"text": "Figure 1: Architecture diagram of the proposed model.", "image": "/tmp/test_image.png"},
+            {
+                "text": "Figure 1: Architecture diagram of the proposed model.",
+                "image": "/tmp/test_image.png",
+            },
             {"text": "3. Results\nOur experiments show significant improvements..."},
             {"text": "Table 1: Comparison of accuracy metrics across methods."},
         ],
@@ -635,7 +652,9 @@ def sample_conversation_data() -> dict[str, Any]:
 
 
 @pytest.fixture
-def mock_process_paper(sample_paper_payload: dict[str, Any]) -> Generator[MagicMock, None, None]:
+def mock_process_paper(
+    sample_paper_payload: dict[str, Any],
+) -> Generator[MagicMock, None, None]:
     """
     Mock the process_paper function for testing upload workflows.
     """
@@ -680,3 +699,40 @@ def assert_valid_chunk_response(response: dict[str, Any]) -> None:
     assert "page" in response
     assert "limit" in response
     assert isinstance(response["chunks"], list)
+
+
+# ============================================================================
+# Cleanup Fixtures
+# ============================================================================
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_files() -> Generator[None, None, None]:
+    """
+    Clean up test files after all tests complete.
+
+    This fixture runs after the entire test session to remove:
+    - Staged upload files in data/uploads/staged/
+    - Temporary PDF storage files
+    """
+    yield  # Run tests first
+
+    # Cleanup after all tests
+    import shutil
+
+    # Clean staged uploads directory
+    staged_dir = Path("data/uploads/staged")
+    if staged_dir.exists():
+        for item in staged_dir.iterdir():
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            except Exception as e:
+                print(f"Warning: Could not remove {item}: {e}")
+
+    # Clean temp PDF storage
+    pdf_storage = Path("/tmp/scholarrag_test_pdfs")
+    if pdf_storage.exists():
+        shutil.rmtree(pdf_storage, ignore_errors=True)
