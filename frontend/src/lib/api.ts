@@ -122,6 +122,10 @@ export async function fetchChunks(
   return res.json()
 }
 
+/**
+ * @deprecated 请使用 uploadPaperAsync() 和 pollJobStatus() 替代
+ * 同步上传会阻塞，大文件可能超时，且无法追踪处理进度
+ */
 export async function uploadPaper(file: File): Promise<{ pdf_name: string; title: string; authors: string; chunk_count: number }> {
   const formData = new FormData()
   formData.append("file", file)
