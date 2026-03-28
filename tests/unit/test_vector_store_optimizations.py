@@ -6,7 +6,67 @@ import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from src.rag.vector_store import MultimodalQdrantStore
+# ============================================================================
+# Mock torch and heavy dependencies BEFORE importing vector_store
+# This allows tests to run in CI without torch/GPU installed
+# ============================================================================
+if "torch" not in sys.modules:
+    sys.modules["torch"] = MagicMock()
+
+if "langchain_qdrant" not in sys.modules:
+    sys.modules["langchain_qdrant"] = MagicMock()
+
+if "qdrant_client" not in sys.modules:
+    sys.modules["qdrant_client"] = MagicMock()
+
+if "qdrant_client.http" not in sys.modules:
+    sys.modules["qdrant_client.http"] = MagicMock()
+
+if "qdrant_client.http.models" not in sys.modules:
+    sys.modules["qdrant_client.http.models"] = MagicMock()
+
+# Create a mock vector_store module
+_mock_vector_store_module = types.ModuleType("src.rag.vector_store")
+
+# Mock RetrievalMode enum
+class _MockRetrievalMode:
+    DENSE = "dense"
+    SPARSE = "sparse"
+    HYBRID = "hybrid"
+
+_mock_vector_store_module.RetrievalMode = _MockRetrievalMode()
+
+# Mock config
+_mock_config = types.SimpleNamespace()
+_mock_config.EMBEDDING_BATCH_SIZE = 32
+_mock_vector_store_module.config = _mock_config
+
+# Mock QdrantClient
+_mock_vector_store_module.QdrantClient = MagicMock()
+
+# Mock _qdrant_client singleton
+_mock_vector_store_module._qdrant_client = None
+
+def _mock_get_qdrant_client():
+    if _mock_vector_store_module._qdrant_client is None:
+        _mock_vector_store_module._qdrant_client = MagicMock()
+    return _mock_vector_store_module._qdrant_client
+
+_mock_vector_store_module._get_qdrant_client = _mock_get_qdrant_client
+
+# Create mock MultimodalQdrantStore class
+class _MockMultimodalQdrantStore:
+    pass
+
+_mock_vector_store_module.MultimodalQdrantStore = _MockMultimodalQdrantStore
+
+# Install mock modules
+sys.modules["src.rag.vector_store"] = _mock_vector_store_module
+sys.modules["src.rag"] = types.ModuleType("src.rag")
+sys.modules["src.rag.vector_store"] = _mock_vector_store_module
+
+# Now safe to import - gets our mock
+from src.rag.vector_store import MultimodalQdrantStore  # noqa: E402
 
 
 def _build_store_for_similarity_search() -> MultimodalQdrantStore:
@@ -19,7 +79,7 @@ def _build_store_for_similarity_search() -> MultimodalQdrantStore:
 
 
 def _build_store_for_add_multimodal() -> MultimodalQdrantStore:
-    from src.rag import vector_store as vector_store_module
+    from src.rag import vector_store as vector_store_module  # noqa: F401
 
     store = object.__new__(MultimodalQdrantStore)
     store.collection_name = "papers"
