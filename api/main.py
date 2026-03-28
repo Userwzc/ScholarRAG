@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 import os
 import warnings
 
@@ -6,13 +8,16 @@ warnings.filterwarnings("ignore", message="Class .* is implemented in both")
 
 from contextlib import asynccontextmanager  # noqa: E402
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from api import config  # noqa: E402
 from api.database import close_db, init_db  # noqa: E402
 from api.routes import conversations, papers, query  # noqa: E402
 from api.schemas import HealthResponse  # noqa: E402
+from src.utils.metrics import attach_metrics_endpoint  # noqa: E402
+from src.utils.exceptions import AppError, normalize_http_error  # noqa: E402
 
 
 @asynccontextmanager
@@ -47,6 +52,21 @@ app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(
     conversations.router, prefix="/api/conversations", tags=["conversations"]
 )
+attach_metrics_endpoint(app)
+
+
+@app.exception_handler(AppError)
+async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
+    payload = normalize_http_error(exc.status_code, exc.detail)
+    return JSONResponse(status_code=exc.status_code, content=payload)
 
 
 @app.get("/api/health", response_model=HealthResponse)

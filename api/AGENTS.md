@@ -55,6 +55,43 @@ class PaperService:
 2. **Temp Files**: PDF 上传到临时目录，处理后清理
 3. **CORS**: 配置为 `localhost:5173`（前端开发服务器）
 4. **Errors**: API routes 只返回 sanitized messages，不要透出 traceback / exception repr
+5. **Exception Handling**: 使用统一的异常层次结构，API 层统一转换为 HTTPException
+
+## Error Handling (W2-A)
+
+### Exception Hierarchy
+```python
+from src.utils.exceptions import AppError, ValidationError, NotFoundError
+
+# Services raise specific exceptions
+if not pdf_name:
+    raise ValidationError("pdf_name is required")
+
+if paper is None:
+    raise NotFoundError(f"Paper '{pdf_name}' not found")
+```
+
+### API Error Response Format
+```python
+# 统一错误响应格式
+{"error": {"code": "VALIDATION_ERROR", "message": "..."}}
+```
+
+## Background Task Execution (W1-A, W3-C)
+
+### Database Lease Pattern
+```python
+# 使用数据库租约防止多 worker 重复处理
+USE_DB_JOB_LEASE=true  # 启用租约机制
+JOB_LEASE_TTL_SECONDS=300  # 租约过期时间
+```
+
+### Executor Configuration
+```python
+# 可配置执行器类型
+EXECUTOR_TYPE=thread  # or 'process' for CPU-bound tasks
+BACKGROUND_EXECUTOR_WORKERS=2  # 并行 worker 数
+```
 
 ## Endpoints
 

@@ -268,7 +268,7 @@ def get_paper_chunks(
 def delete_paper(pdf_name: str) -> bool:
     from src.ingest.paper_manager import PaperManager
 
-    manager = PaperManager(output_dir="./data/parsed")
+    manager = PaperManager(output_dir=config.PARSED_OUTPUT_DIR)
 
     # Delete PDF file
     pdf_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_name}.pdf")

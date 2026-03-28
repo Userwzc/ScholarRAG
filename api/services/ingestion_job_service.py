@@ -1,12 +1,12 @@
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import IngestionJob
 
-_UNSET = ...
+_UNSET = object()
 
 TERMINAL_JOB_STATUSES = ("completed", "failed")
 ACTIVE_JOB_STATUSES = ("pending", "processing")
@@ -46,6 +46,8 @@ async def create_ingestion_job(
         source_file_path=source_file_path,
         result_summary=None,
         error_message=None,
+        leased_at=None,
+        leased_by=None,
         created_at=now,
         updated_at=now,
     )
@@ -80,7 +82,9 @@ async def update_ingestion_job(
     retry_count: Optional[int] = None,
     paper_version_id: Optional[int] = None,
     result_summary: Optional[str] = None,
-    error_message: Optional[str] = _UNSET,
+    error_message: Any = _UNSET,
+    leased_at: Any = _UNSET,
+    leased_by: Any = _UNSET,
 ) -> Optional[IngestionJob]:
     job = await get_ingestion_job(session, job_id)
     if job is None:
@@ -100,6 +104,10 @@ async def update_ingestion_job(
         job.result_summary = result_summary
     if error_message is not _UNSET:
         job.error_message = error_message
+    if leased_at is not _UNSET:
+        job.leased_at = leased_at
+    if leased_by is not _UNSET:
+        job.leased_by = leased_by
 
     job.updated_at = _now_ms()
     await session.flush()

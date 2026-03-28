@@ -1,6 +1,7 @@
 import os
 import shutil
 
+from config.settings import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -9,7 +10,7 @@ logger = get_logger(__name__)
 class PaperManager:
     """Handles paper lifecycle operations: add, delete, list, etc."""
 
-    def __init__(self, output_dir: str = "./data/parsed"):
+    def __init__(self, output_dir: str = config.PARSED_OUTPUT_DIR):
         self.output_dir = output_dir
 
     def delete_paper(

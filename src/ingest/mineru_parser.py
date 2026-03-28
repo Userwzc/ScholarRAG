@@ -1,11 +1,11 @@
 import os
 import re
 import json
-import tiktoken
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from langchain_text_splitters import MarkdownTextSplitter
+from src.utils.cache import get_tokenizer
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -329,7 +329,7 @@ class MinerUParser:
         in_references: bool = False
 
         try:
-            tokenizer = tiktoken.get_encoding("cl100k_base")
+            tokenizer = get_tokenizer("cl100k_base")
         except Exception:
             tokenizer = None
 

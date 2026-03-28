@@ -66,6 +66,9 @@ cd frontend && npm run dev  # http://localhost:5173
 | **System Prompts** | Use `SystemMessage`; never `HumanMessage` |
 | **Tool Calls** | Agent must call at least one tool before answering |
 | **Message Types** | Import from `langchain_core.messages`: `AIMessage`, `HumanMessage`, `ToolMessage` |
+| **Error Handling** | Use specific exception types from `src/utils/exceptions`; never bare `except Exception` |
+| **Retrieval Service** | Agent tools use `RetrievalService` protocol; never directly import `get_vector_store()` in tools |
+| **N+1 Queries** | Batch retrieve operations; never loop with individual `client.retrieve()` calls |
 
 ---
 
@@ -97,6 +100,30 @@ logger = get_logger(__name__)
 
 logger.info("Action %s completed", item)  # lazy % formatting
 # Never use print() except streaming in query_agent()
+```
+
+### Error Handling
+```python
+from src.utils.exceptions import AppError, ValidationError, NotFoundError
+
+# Raise specific exceptions
+def get_paper(pdf_name: str) -> Paper:
+    if not pdf_name:
+        raise ValidationError("pdf_name is required")
+    # ...
+    if paper is None:
+        raise NotFoundError(f"Paper '{pdf_name}' not found")
+```
+
+### Caching
+```python
+from src.utils.cache import get_tokenizer, QueryCache
+
+# Tokenizer singleton
+tokenizer = get_tokenizer("cl100k_base")  # cached across calls
+
+# Query cache for retrieval
+query_cache = QueryCache(ttl=300)  # 5 minutes TTL
 ```
 
 ### PyTorch
@@ -147,6 +174,9 @@ function Foo(): JSX.Element {  // explicit return type
 - Don't hard-code `top_k=5` — read `config.RAG_TOP_K`
 - Don't switch `stream_mode` to `"values"` in `query_agent()`
 - Don't use `List`, `Dict` from `typing` — use `list`, `dict`
+- Don't use bare `except Exception` — catch specific exception types
+- Don't import `get_vector_store()` at module level in tools — use `RetrievalService` protocol
+- Don't use `uuid.uuid4()` for content IDs — use `uuid.uuid5()` for idempotency
 
 ---
 

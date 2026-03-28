@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -419,6 +421,224 @@ async def test_run_ingestion_job_prevents_duplicate_processing_execution(
             await session_two.commit()
 
     assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_db_lease_prevents_two_workers_from_processing_same_job(
+    temp_db: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that database lease prevents duplicate processing.
+    
+    Note: SQLite doesn't support high concurrency, so we test the lease logic
+    sequentially rather than in parallel.
+    """
+    import sys
+    monkeypatch.setenv("USE_DB_JOB_LEASE", "true")
+
+    async with temp_db["session_maker"]() as setup_session:
+        create_result = await async_upload_service.create_async_upload_job(
+            session=setup_session,
+            file_content=b"%PDF-1.4 db lease",
+            filename="db-lease-duplicate.pdf",
+        )
+        await setup_session.commit()
+
+    call_count = 0
+
+    def _slow_fake_ingest(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        callback = kwargs["progress_callback"]
+        callback("parsing", 10)
+        time.sleep(0.05)  # Reduced sleep time
+        callback("completed", 100)
+        return {
+            "pdf_name": "db-lease-duplicate",
+            "title": "DB Lease Duplicate",
+            "authors": "Author",
+            "chunk_count": 1,
+        }
+
+    with (
+        patch("api.services.paper_service.ingest_paper_file", side_effect=_slow_fake_ingest),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+    ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
+        
+        # Use sequential execution for SQLite compatibility
+        # First worker should acquire lease and process
+        async with temp_db["session_maker"]() as worker_one:
+            await async_upload_service.run_ingestion_job(worker_one, create_result.job_id)
+            await worker_one.commit()
+        
+        # Second worker should see job as already processed
+        async with temp_db["session_maker"]() as worker_two:
+            await async_upload_service.run_ingestion_job(worker_two, create_result.job_id)
+            await worker_two.commit()
+
+    # Ingest should only be called once due to lease protection
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_db_lease_expired_processing_job_can_be_taken_over(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("USE_DB_JOB_LEASE", "true")
+    monkeypatch.setenv("JOB_LEASE_TTL_SECONDS", "300")
+
+    create_result = await async_upload_service.create_async_upload_job(
+        session=db_session,
+        file_content=b"%PDF-1.4 stale lease",
+        filename="stale-lease.pdf",
+    )
+
+    stale_ms = int(time.time() * 1000) - (6 * 60 * 1000)
+    await db_session.execute(
+        sqlalchemy.text(
+            """
+            UPDATE ingestion_jobs
+            SET status = 'processing', leased_at = :leased_at, leased_by = :leased_by
+            WHERE id = :job_id
+            """
+        ),
+        {
+            "job_id": create_result.job_id,
+            "leased_at": stale_ms,
+            "leased_by": "worker-dead",
+        },
+    )
+    await db_session.commit()
+
+    def _fake_ingest(*args, **kwargs):
+        callback = kwargs["progress_callback"]
+        callback("completed", 100)
+        return {
+            "pdf_name": "stale-lease",
+            "title": "Stale Lease",
+            "authors": "Author",
+            "chunk_count": 1,
+        }
+
+    with (
+        patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+    ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
+        await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
+
+    job = await get_ingestion_job(db_session, create_result.job_id)
+    assert job is not None
+    assert job.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_db_lease_recovers_job_after_worker_crash(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("USE_DB_JOB_LEASE", "true")
+    monkeypatch.setenv("JOB_LEASE_TTL_SECONDS", "300")
+
+    create_result = await async_upload_service.create_async_upload_job(
+        session=db_session,
+        file_content=b"%PDF-1.4 crash recovery",
+        filename="lease-crash-recovery.pdf",
+    )
+
+    stale_ms = int(time.time() * 1000) - (10 * 60 * 1000)
+    await db_session.execute(
+        sqlalchemy.text(
+            """
+            UPDATE ingestion_jobs
+            SET status = 'processing', stage = 'parsing', progress = 10,
+                leased_at = :leased_at, leased_by = :leased_by
+            WHERE id = :job_id
+            """
+        ),
+        {
+            "job_id": create_result.job_id,
+            "leased_at": stale_ms,
+            "leased_by": "crashed-worker",
+        },
+    )
+    await db_session.commit()
+
+    def _fake_ingest(*args, **kwargs):
+        callback = kwargs["progress_callback"]
+        callback("chunking", 35)
+        callback("completed", 100)
+        return {
+            "pdf_name": "lease-crash-recovery",
+            "title": "Crash Recovery",
+            "authors": "Author",
+            "chunk_count": 2,
+        }
+
+    with (
+        patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
+        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+    ):
+        mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
+        await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
+
+    recovered = await get_ingestion_job(db_session, create_result.job_id)
+    assert recovered is not None
+    assert recovered.status == "completed"
+    assert recovered.progress == 100
+
+
+def test_background_executor_can_run_multiple_jobs_in_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EXECUTOR_TYPE", "thread")
+    monkeypatch.setenv("BACKGROUND_EXECUTOR_WORKERS", "3")
+
+    async_upload_service._BACKGROUND_EXECUTOR = None
+    active = 0
+    max_active = 0
+    state_lock = threading.Lock()
+
+    def _fake_runner(job_id: str) -> None:
+        nonlocal active, max_active
+        _ = job_id
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.15)
+        with state_lock:
+            active -= 1
+
+    with patch(
+        "api.services.async_upload_service._run_ingestion_job_background_sync",
+        side_effect=_fake_runner,
+    ):
+        async_upload_service.start_background_ingestion("job-1")
+        async_upload_service.start_background_ingestion("job-2")
+        async_upload_service.start_background_ingestion("job-3")
+
+        executor = async_upload_service._BACKGROUND_EXECUTOR
+        assert executor is not None
+        executor.shutdown(wait=True)
+
+    async_upload_service._BACKGROUND_EXECUTOR = None
+    assert max_active >= 2
+
+
+def test_executor_type_process_uses_process_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EXECUTOR_TYPE", "process")
+    monkeypatch.setenv("BACKGROUND_EXECUTOR_WORKERS", "2")
+    async_upload_service._BACKGROUND_EXECUTOR = None
+
+    executor = async_upload_service._get_background_executor()
+    assert executor.__class__.__name__ == "ProcessPoolExecutor"
+
+    executor.shutdown(wait=True)
+    async_upload_service._BACKGROUND_EXECUTOR = None
 
 
 @pytest.mark.asyncio

@@ -1,20 +1,24 @@
 """LangGraph Agent tools for paper RAG."""
 
-# pyright: reportMissingImports=false
+# pyright: reportMissingImports=false, reportUndefinedVariable=false
 
 import hashlib
 import os
 from typing import Any
 
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from qdrant_client.http import models
 
 from config.settings import config
-from src.rag.vector_store import get_vector_store
+from src.agent.retrieval_service import RetrievalService, get_retrieval_service
+from src.utils.cache import QueryCache
+from src.utils.exceptions import AppError, ExternalServiceError
 from src.utils.logger import get_logger
+from src.utils.metrics import record_search
 
 logger = get_logger(__name__)
+QUERY_CACHE = QueryCache(ttl=300)
 
 
 def _resolve_img_path(pdf_name: str, img_path: str) -> str:
@@ -24,7 +28,7 @@ def _resolve_img_path(pdf_name: str, img_path: str) -> str:
     if os.path.isabs(img_path) and os.path.exists(img_path):
         return img_path
 
-    base_dir = os.path.join("./data/parsed", pdf_name)
+    base_dir = os.path.join(config.PARSED_OUTPUT_DIR, pdf_name)
     for backend_subdir in ("auto", "hybrid_auto"):
         backend_dir = os.path.join(base_dir, backend_subdir)
         for candidate in (
@@ -372,8 +376,7 @@ def _visual_rank(item: dict[str, Any]) -> tuple[float, int, int, int]:
     )
 
 
-@tool("search_papers", args_schema=SearchPapersInput)
-def search_papers(
+def _search_papers_impl(
     query: str,
     filter_metadata: str = "{}",
     pdf_name: str = "",
@@ -386,12 +389,8 @@ def search_papers(
     title_contains: str = "",
     figure_or_table_label: str = "",
     top_k: int = config.RAG_TOP_K,
-) -> dict:
-    """Search paper chunks broadly across text, figures, and tables.
-
-    Use this tool first for most questions about paper content, contributions,
-    methods, results, authors, or conclusions.
-    """
+    retrieval_service: RetrievalService | None = None,
+) -> dict[str, Any]:
     qdrant_filter = _build_qdrant_filter(
         pdf_name=pdf_name,
         chunk_types=chunk_types,
@@ -400,20 +399,41 @@ def search_papers(
         page_end=page_end,
         filter_metadata=filter_metadata,
     )
+    cache_filters: dict[str, Any] = {
+        "tool": "search_papers",
+        "filter_metadata": filter_metadata,
+        "pdf_name": pdf_name,
+        "chunk_types": chunk_types or [],
+        "page_idx": page_idx,
+        "page_start": page_start,
+        "page_end": page_end,
+        "heading_contains": heading_contains,
+        "authors_contains": authors_contains,
+        "title_contains": title_contains,
+        "figure_or_table_label": figure_or_table_label,
+        "top_k": top_k,
+    }
+    cached_results = QUERY_CACHE.get(query, cache_filters)
+    if cached_results is not None:
+        return _results_json(query, "search_papers", cached_results)
 
+    service = retrieval_service or get_retrieval_service()
     try:
-        vector_store = get_vector_store()
-        results = vector_store.similarity_search(
-            query,
-            k=top_k,
-            filter=qdrant_filter,
-            candidate_k=top_k,
-        )
-    except Exception as exc:
+        with record_search("search_papers"):
+            results = service.search_papers(
+                query,
+                top_k=top_k,
+                qdrant_filter=qdrant_filter,
+                candidate_k=top_k,
+            )
+    except AppError as exc:
         logger.error("Vector store search failed: %s", exc)
         return _results_json(query, "search_papers", [])
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        error = ExternalServiceError("Vector store search failed", log_message=str(exc))
+        logger.error("%s: %s", error.message, exc)
+        return _results_json(query, "search_papers", [])
 
-    # 客户端过滤（无法用 Qdrant Filter 表达的条件）
     filtered = [
         doc
         for doc in results
@@ -430,11 +450,11 @@ def search_papers(
     ]
     filtered.sort(key=lambda item: float(item.get("score", 0.0)), reverse=True)
     formatted = _format_results(filtered[:top_k], "search_papers")
+    QUERY_CACHE.set(query, cache_filters, formatted)
     return _results_json(query, "search_papers", formatted)
 
 
-@tool("search_visuals", args_schema=SearchVisualsInput)
-def search_visuals(
+def _search_visuals_impl(
     query: str,
     pdf_name: str = "",
     chunk_types: list[str] | None = None,
@@ -444,23 +464,32 @@ def search_visuals(
     heading_contains: str = "",
     figure_or_table_label: str = "",
     top_k: int = config.RAG_TOP_K,
-) -> dict:
-    """Search specifically for figure and table evidence relevant to a question.
-
-    Prefer this tool when the question mentions figures, tables, experiments,
-    ablations, plots, charts, or performance comparisons.
-    """
+    retrieval_service: RetrievalService | None = None,
+) -> dict[str, Any]:
     combined: list[dict[str, Any]] = []
     seen_ids: set[tuple[str, str, str]] = set()
 
     visual_chunk_types = chunk_types or ["table", "image"]
     visual_query = query
-    if (
-        figure_or_table_label
-        and figure_or_table_label.casefold() not in query.casefold()
-    ):
+    if figure_or_table_label and figure_or_table_label.casefold() not in query.casefold():
         visual_query = f"{query} {figure_or_table_label}"
 
+    cache_filters: dict[str, Any] = {
+        "tool": "search_visuals",
+        "pdf_name": pdf_name,
+        "chunk_types": chunk_types or [],
+        "page_idx": page_idx,
+        "page_start": page_start,
+        "page_end": page_end,
+        "heading_contains": heading_contains,
+        "figure_or_table_label": figure_or_table_label,
+        "top_k": top_k,
+    }
+    cached_results = QUERY_CACHE.get(visual_query, cache_filters)
+    if cached_results is not None:
+        return _results_json(visual_query, "search_visuals", cached_results)
+
+    service = retrieval_service or get_retrieval_service()
     for chunk_type in visual_chunk_types:
         qdrant_filter = _build_qdrant_filter(
             pdf_name=pdf_name,
@@ -470,16 +499,20 @@ def search_visuals(
             page_end=page_end,
         )
         try:
-            vector_store = get_vector_store()
-            results = vector_store.similarity_search(
-                visual_query,
-                k=max(4, top_k * 3),
-                filter=qdrant_filter,
-                score_threshold=0.0,
-                candidate_k=top_k,
-            )
-        except Exception as exc:
+            with record_search("search_visuals"):
+                results = service.search_visuals(
+                    visual_query,
+                    top_k=max(4, top_k * 3),
+                    qdrant_filter=qdrant_filter,
+                    score_threshold=0.0,
+                    candidate_k=top_k,
+                )
+        except AppError as exc:
             logger.error("Visual search failed for %s: %s", chunk_type, exc)
+            continue
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            error = ExternalServiceError("Visual search failed", log_message=str(exc))
+            logger.error("%s for %s: %s", error.message, chunk_type, exc)
             continue
 
         filtered = [
@@ -494,7 +527,6 @@ def search_visuals(
                 page_end=page_end,
             )
         ]
-
         filtered.sort(key=_visual_rank, reverse=True)
 
         for doc in filtered:
@@ -502,12 +534,13 @@ def search_visuals(
             if visual_key in seen_ids:
                 continue
             seen_ids.add(visual_key)
-            evidence = _payload_to_evidence(
-                doc.get("payload", {}),
-                doc.get("score", 0.0),
-                "search_visuals",
+            combined.append(
+                _payload_to_evidence(
+                    doc.get("payload", {}),
+                    doc.get("score", 0.0),
+                    "search_visuals",
+                )
             )
-            combined.append(evidence)
 
     combined.sort(
         key=lambda item: (
@@ -517,16 +550,17 @@ def search_visuals(
         ),
         reverse=True,
     )
-    return _results_json(visual_query, "search_visuals", combined[:top_k])
+    limited = combined[:top_k]
+    QUERY_CACHE.set(visual_query, cache_filters, limited)
+    return _results_json(visual_query, "search_visuals", limited)
 
 
-@tool("get_page_context", args_schema=PageContextInput)
-def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> dict:
-    """Fetch all chunk types from a specific paper page for local context expansion.
-
-    Use this after a search tool identifies a promising page and you want nearby
-    context from the same page or section.
-    """
+def _get_page_context_impl(
+    pdf_name: str,
+    page_idx: int,
+    heading: str = "",
+    retrieval_service: RetrievalService | None = None,
+) -> dict[str, Any]:
     qdrant_filter = models.Filter(
         must=[
             models.FieldCondition(
@@ -539,10 +573,16 @@ def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> dict:
             ),
         ]
     )
+    service = retrieval_service or get_retrieval_service()
     try:
-        results = get_vector_store().fetch_by_metadata(qdrant_filter, limit=20)
-    except Exception as exc:
+        with record_search("get_page_context"):
+            results = service.fetch_page_context(qdrant_filter, limit=20)
+    except AppError as exc:
         logger.error("Page-context fetch failed: %s", exc)
+        return _results_json(f"{pdf_name}:{page_idx}", "get_page_context", [])
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        error = ExternalServiceError("Page-context fetch failed", log_message=str(exc))
+        logger.error("%s: %s", error.message, exc)
         return _results_json(f"{pdf_name}:{page_idx}", "get_page_context", [])
 
     formatted: list[dict[str, Any]] = []
@@ -564,9 +604,70 @@ def get_page_context(pdf_name: str, page_idx: int, heading: str = "") -> dict:
     return _results_json(f"{pdf_name}:{page_idx}", "get_page_context", formatted)
 
 
-AGENT_TOOLS: list[BaseTool] = [
-    search_papers,
-    search_visuals,
-    get_page_context,
-]
-TOOL_REGISTRY: dict[str, BaseTool] = {tool.name: tool for tool in AGENT_TOOLS}
+@tool("search_papers", args_schema=SearchPapersInput)
+def search_papers(
+    query: str,
+    filter_metadata: str = "{}",
+    pdf_name: str = "",
+    chunk_types: list[str] | None = None,
+    page_idx: int | None = None,
+    page_start: int | None = None,
+    page_end: int | None = None,
+    heading_contains: str = "",
+    authors_contains: str = "",
+    title_contains: str = "",
+    figure_or_table_label: str = "",
+    top_k: int = config.RAG_TOP_K,
+) -> dict[str, Any]:
+    return _search_papers_impl(
+        query=query,
+        filter_metadata=filter_metadata,
+        pdf_name=pdf_name,
+        chunk_types=chunk_types,
+        page_idx=page_idx,
+        page_start=page_start,
+        page_end=page_end,
+        heading_contains=heading_contains,
+        authors_contains=authors_contains,
+        title_contains=title_contains,
+        figure_or_table_label=figure_or_table_label,
+        top_k=top_k,
+    )
+
+
+@tool("search_visuals", args_schema=SearchVisualsInput)
+def search_visuals(
+    query: str,
+    pdf_name: str = "",
+    chunk_types: list[str] | None = None,
+    page_idx: int | None = None,
+    page_start: int | None = None,
+    page_end: int | None = None,
+    heading_contains: str = "",
+    figure_or_table_label: str = "",
+    top_k: int = config.RAG_TOP_K,
+) -> dict[str, Any]:
+    return _search_visuals_impl(
+        query=query,
+        pdf_name=pdf_name,
+        chunk_types=chunk_types,
+        page_idx=page_idx,
+        page_start=page_start,
+        page_end=page_end,
+        heading_contains=heading_contains,
+        figure_or_table_label=figure_or_table_label,
+        top_k=top_k,
+    )
+
+
+@tool("get_page_context", args_schema=PageContextInput)
+def get_page_context(
+    pdf_name: str,
+    page_idx: int,
+    heading: str = "",
+) -> dict[str, Any]:
+    return _get_page_context_impl(
+        pdf_name=pdf_name,
+        page_idx=page_idx,
+        heading=heading,
+    )

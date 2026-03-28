@@ -1,7 +1,11 @@
+# pyright: reportMissingImports=false
+
 import logging
 from typing import Optional
+
 from fastapi import APIRouter, File, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from api.database import get_db_session
 from api.schemas import (
@@ -18,15 +22,26 @@ from api.schemas import (
     TOCResponse,
 )
 from api.services import async_upload_service, paper_registry_service, paper_service
+from src.utils.exceptions import (
+    AppError,
+    ExternalServiceError,
+    NotFoundError,
+    ValidationError,
+    app_error_to_dict,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _as_http_exception(error: AppError) -> HTTPException:
+    return HTTPException(status_code=error.status_code, detail=app_error_to_dict(error))
+
+
 @router.post("/uploads", response_model=IngestionJobCreateResponse, status_code=202)
 async def async_upload_paper(file: UploadFile = File(...)):
     if file.filename is None or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        raise _as_http_exception(ValidationError("Only PDF files are supported"))
 
     try:
         content = await file.read()
@@ -40,9 +55,11 @@ async def async_upload_paper(file: UploadFile = File(...)):
         async_upload_service.start_background_ingestion(result.job_id)
 
         return result
-    except Exception as e:
-        logger.exception("Failed to start async upload: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to start upload processing")
+    except (OSError, RuntimeError, ValueError, TypeError, SQLAlchemyError) as exc:
+        logger.exception("Failed to start async upload: %s", exc)
+        raise _as_http_exception(
+            ExternalServiceError("Failed to start upload processing", log_message=str(exc))
+        )
 
 
 @router.get("/uploads", response_model=IngestionJobListResponse)
@@ -56,7 +73,7 @@ async def get_job_status(job_id: str):
     async with get_db_session() as session:
         job = await async_upload_service.get_job_status(session, job_id)
         if job is None:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise _as_http_exception(NotFoundError("Job not found"))
         return job
 
 
@@ -65,17 +82,14 @@ async def retry_job(job_id: str):
     async with get_db_session() as session:
         job = await async_upload_service.get_job_status(session, job_id)
         if job is None:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise _as_http_exception(NotFoundError("Job not found"))
 
         if job.status != "failed":
-            raise HTTPException(
-                status_code=409,
-                detail="Retry is only allowed for failed jobs",
-            )
+            raise HTTPException(status_code=409, detail=app_error_to_dict(ValidationError("Retry is only allowed for failed jobs")))
 
         result = await async_upload_service.retry_failed_job(session, job_id)
         if result is None:
-            raise HTTPException(status_code=500, detail="Failed to retry job")
+            raise _as_http_exception(ExternalServiceError("Failed to retry job"))
 
     async_upload_service.start_background_ingestion(job_id)
     return result
@@ -89,19 +103,16 @@ async def reindex_paper(pdf_name: str):
         async with get_db_session() as session:
             result = await async_upload_service.create_reindex_job(session, pdf_name)
             if result is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Paper not found or source PDF unavailable",
+                raise _as_http_exception(
+                    NotFoundError("Paper not found or source PDF unavailable")
                 )
 
         async_upload_service.start_background_ingestion(result.job_id)
         return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Failed to start reindex job: %s", e)
-        raise HTTPException(
-            status_code=500, detail="Failed to start reindex processing"
+    except (OSError, RuntimeError, ValueError, TypeError, SQLAlchemyError) as exc:
+        logger.exception("Failed to start reindex job: %s", exc)
+        raise _as_http_exception(
+            ExternalServiceError("Failed to start reindex processing", log_message=str(exc))
         )
 
 
@@ -110,7 +121,7 @@ async def get_paper_versions(pdf_name: str):
     async with get_db_session() as session:
         paper = await paper_registry_service.get_paper_by_pdf_name(session, pdf_name)
         if paper is None:
-            raise HTTPException(status_code=404, detail="Paper not found")
+            raise _as_http_exception(NotFoundError("Paper not found"))
 
         versions = await paper_registry_service.list_versions(session, paper.id)
 
@@ -135,16 +146,18 @@ async def list_papers(version: Optional[int] = Query(None, ge=1)):
     try:
         papers = paper_service.list_papers(version=version)
         return PaperListResponse(papers=papers)
-    except Exception as e:
-        logger.exception("Failed to list papers: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to list papers")
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        logger.exception("Failed to list papers: %s", exc)
+        raise _as_http_exception(
+            ExternalServiceError("Failed to list papers", log_message=str(exc))
+        )
 
 
 @router.get("/{pdf_name}", response_model=PaperDetail)
 async def get_paper(pdf_name: str, version: Optional[int] = Query(None, ge=1)):
     paper = paper_service.get_paper_detail(pdf_name, version=version)
     if paper is None:
-        raise HTTPException(status_code=404, detail="Paper not found")
+        raise _as_http_exception(NotFoundError("Paper not found"))
     return paper
 
 
@@ -153,13 +166,15 @@ async def delete_paper(pdf_name: str):
     try:
         success = paper_service.delete_paper(pdf_name)
         if not success:
-            raise HTTPException(status_code=404, detail="Paper not found")
+            raise _as_http_exception(NotFoundError("Paper not found"))
         return DeleteResponse(message=f"Paper {pdf_name} deleted successfully")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.exception("Failed to delete paper: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to delete paper")
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        logger.exception("Failed to delete paper: %s", exc)
+        raise _as_http_exception(
+            ExternalServiceError("Failed to delete paper", log_message=str(exc))
+        )
 
 
 @router.get("/{pdf_name}/chunks", response_model=ChunkListResponse)
@@ -178,16 +193,18 @@ async def get_paper_chunks(
             type,
             version=version,
         )
-    except Exception as e:
-        logger.exception("Failed to get paper chunks: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to get paper chunks")
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        logger.exception("Failed to get paper chunks: %s", exc)
+        raise _as_http_exception(
+            ExternalServiceError("Failed to get paper chunks", log_message=str(exc))
+        )
 
 
 @router.get("/{pdf_name}/pdf")
 async def get_pdf_file(pdf_name: str):
     pdf_path = paper_service.get_pdf_path(pdf_name)
     if pdf_path is None:
-        raise HTTPException(status_code=404, detail="PDF file not found")
+        raise _as_http_exception(NotFoundError("PDF file not found"))
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
@@ -199,5 +216,5 @@ async def get_pdf_file(pdf_name: str):
 async def get_paper_toc(pdf_name: str, version: Optional[int] = Query(None, ge=1)):
     toc = paper_service.get_paper_toc(pdf_name, version=version)
     if toc is None:
-        raise HTTPException(status_code=404, detail="Paper not found")
+        raise _as_http_exception(NotFoundError("Paper not found"))
     return toc

@@ -131,7 +131,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
         inputs: list[dict[str, Any]],
         metadatas: list[dict[str, Any]] | None = None,
         ids: list[str] | None = None,
-        batch_size: int = 4,
+        batch_size: int | None = None,
     ) -> list[str]:
         """存储多模态输入，支持图文混合 embedding。
 
@@ -166,13 +166,15 @@ class MultimodalQdrantStore(QdrantVectorStore):
                 for inp, m in zip(inputs, metadatas)
             ]
 
-        all_ids: list[str] = []
-        total_batches = -(-len(inputs) // batch_size)
+        resolved_batch_size = self._resolve_embedding_batch_size(batch_size)
 
-        for i in range(0, len(inputs), batch_size):
-            batch_inputs = inputs[i : i + batch_size]
-            batch_metas = metadatas[i : i + batch_size]
-            batch_ids = ids[i : i + batch_size]
+        all_ids: list[str] = []
+        total_batches = -(-len(inputs) // resolved_batch_size)
+
+        for i in range(0, len(inputs), resolved_batch_size):
+            batch_inputs = inputs[i : i + resolved_batch_size]
+            batch_metas = metadatas[i : i + resolved_batch_size]
+            batch_ids = ids[i : i + resolved_batch_size]
 
             # 使用 embedding 生成向量
             vectors = self._embeddings.embed_documents(batch_inputs)
@@ -222,7 +224,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
             all_ids.extend(batch_ids)
             logger.info(
                 "Upserted batch %d/%d (%d items)",
-                i // batch_size + 1,
+                i // resolved_batch_size + 1,
                 total_batches,
                 len(batch_inputs),
             )
@@ -234,6 +236,33 @@ class MultimodalQdrantStore(QdrantVectorStore):
             self.collection_name,
         )
         return all_ids
+
+    def _resolve_embedding_batch_size(self, batch_size: int | None) -> int:
+        requested = batch_size if batch_size is not None else config.EMBEDDING_BATCH_SIZE
+        requested = max(1, int(requested))
+        if not torch.cuda.is_available():
+            return requested
+
+        try:
+            free_bytes, _ = torch.cuda.mem_get_info()
+        except Exception:
+            return requested
+
+        model_name = str(getattr(config, "EMBEDDING_MODEL", "")).lower()
+        if "72b" in model_name or "32b" in model_name:
+            model_scale = 8
+        elif "14b" in model_name or "13b" in model_name:
+            model_scale = 4
+        elif "7b" in model_name:
+            model_scale = 2
+        else:
+            model_scale = 1
+
+        estimated_per_sample = 256 * 1024 * 1024 * model_scale
+        safe_limit = int((free_bytes * 0.7) // estimated_per_sample)
+        if safe_limit <= 0:
+            return 1
+        return min(requested, safe_limit)
 
     def similarity_search(
         self,
@@ -270,43 +299,61 @@ class MultimodalQdrantStore(QdrantVectorStore):
             score_threshold=score_threshold if score_threshold > 0 else None,
         )
 
-        # 转换格式：Document -> payload dict
+        docs = [doc for doc, _ in results]
+        payloads = self._reconstruct_payloads(docs)
+
         raw = []
-        for doc, score in results:
+        for (doc, score), payload in zip(results, payloads):
             if score < score_threshold:
                 continue
-            # 从 Document.metadata 重建 payload
-            payload = self._reconstruct_payload(doc)
             raw.append({"score": score, "payload": payload})
 
         return raw[:k]
 
-    def _reconstruct_payload(self, doc) -> dict[str, Any]:
-        """从 Document 重建完整 payload（包含 _multimodal_input）。
+    def _reconstruct_payloads(self, docs: list[Any]) -> list[dict[str, Any]]:
+        payload_by_id: dict[str, dict[str, Any]] = {}
+        point_ids: list[Any] = []
+        point_id_keys: list[str] = []
 
-        Document.metadata 已经包含了大部分信息，但 _multimodal_input
-        需要从 Qdrant 原始 payload 中获取（如果存在）。
-        """
-        meta = dict(doc.metadata)
-        # 移除 LangChain 自动添加的字段
-        meta.pop("_id", None)
-        meta.pop("_collection_name", None)
+        for doc in docs:
+            point_id = doc.metadata.get("_id")
+            if point_id is None:
+                continue
+            key = str(point_id)
+            if key in payload_by_id:
+                continue
+            point_id_keys.append(key)
+            point_ids.append(point_id)
 
-        # 尝试从 Qdrant 获取完整 payload（包含 _multimodal_input）
-        point_id = doc.metadata.get("_id")
-        if point_id:
+        if point_ids:
             try:
                 points = self.client.retrieve(
                     self.collection_name,
-                    [point_id],
+                    point_ids,
                     with_payload=True,
                 )
-                if points:
-                    return dict(points[0].payload)
+                for key, point in zip(point_id_keys, points):
+                    if getattr(point, "payload", None):
+                        payload_by_id[key] = dict(point.payload)
             except Exception:
-                pass
+                payload_by_id = {}
 
-        # 降级：使用 Document 字段重建
+        return [self._reconstruct_payload(doc, payload_by_id) for doc in docs]
+
+    def _reconstruct_payload(
+        self,
+        doc: Any,
+        payload_by_id: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        meta = dict(doc.metadata)
+        point_id = doc.metadata.get("_id")
+        if point_id is not None and payload_by_id:
+            payload = payload_by_id.get(str(point_id))
+            if payload is not None:
+                return payload
+
+        meta.pop("_id", None)
+        meta.pop("_collection_name", None)
         return {
             self.content_payload_key: doc.page_content,
             self.metadata_payload_key: meta,
@@ -350,9 +397,11 @@ class MultimodalQdrantStore(QdrantVectorStore):
             filter=filter,
         )
 
+        docs = [doc for doc, _ in results]
+        payloads = self._reconstruct_payloads(docs)
         return [
-            {"score": score, "payload": self._reconstruct_payload(doc)}
-            for doc, score in results
+            {"score": score, "payload": payload}
+            for (_, score), payload in zip(results, payloads)
         ]
 
     # ========== 元数据操作 ==========
@@ -552,6 +601,31 @@ class MultimodalQdrantStore(QdrantVectorStore):
 
 _vector_store: MultimodalQdrantStore | None = None
 _vector_store_lock = threading.Lock()
+_qdrant_client: QdrantClient | None = None
+_qdrant_client_lock = threading.Lock()
+
+
+def _get_qdrant_client() -> QdrantClient:
+    global _qdrant_client
+    if _qdrant_client is None:
+        with _qdrant_client_lock:
+            if _qdrant_client is None:
+                client_kwargs: dict[str, Any] = {
+                    "url": f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}",
+                    "timeout": config.QDRANT_TIMEOUT_SECONDS,
+                }
+                try:
+                    import httpx  # pyright: ignore[reportMissingImports]
+
+                    client_kwargs["limits"] = httpx.Limits(
+                        max_keepalive_connections=config.QDRANT_HTTP_KEEPALIVE_CONNECTIONS,
+                        max_connections=config.QDRANT_HTTP_MAX_CONNECTIONS,
+                    )
+                    _qdrant_client = QdrantClient(**client_kwargs)
+                except TypeError:
+                    client_kwargs.pop("limits", None)
+                    _qdrant_client = QdrantClient(**client_kwargs)
+    return _qdrant_client
 
 
 def _create_vector_store() -> MultimodalQdrantStore:
@@ -560,7 +634,7 @@ def _create_vector_store() -> MultimodalQdrantStore:
 
     from src.rag.embedding import Qwen3VLEmbeddings
 
-    client = QdrantClient(url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}")
+    client = _get_qdrant_client()
 
     embeddings = Qwen3VLEmbeddings(
         model_name_or_path=config.EMBEDDING_MODEL,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import threading
 from typing import Any
 
 import json
@@ -9,7 +10,7 @@ from pathlib import Path
 
 from collections.abc import Iterator
 
-from langchain_core.messages import (
+from langchain_core.messages import (  # pyright: ignore[reportMissingImports]
     AIMessage,
     AIMessageChunk,
     BaseMessage,
@@ -17,19 +18,15 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI  # pyright: ignore[reportMissingImports]
 
 from config.settings import config
-from src.agent.tools import AGENT_TOOLS, TOOL_REGISTRY
+from src.agent.tooling import AGENT_TOOLS, TOOL_REGISTRY  # pyright: ignore[reportMissingImports]
+from src.utils.resilience import call_with_circuit_breaker  # pyright: ignore[reportMissingImports]
 
-llm = ChatOpenAI(
-    openai_api_base=config.OPENAI_API_BASE,
-    openai_api_key=config.OPENAI_API_KEY,
-    model_name=config.LLM_MODEL,
-    temperature=1.0,
-)
-
-model_with_tools = llm.bind_tools(AGENT_TOOLS)
+_llm: ChatOpenAI | None = None
+_model_with_tools: Any | None = None
+_llm_lock = threading.Lock()
 
 _SYSTEM_PROMPT = """\
 You are an expert Research AI Assistant with access to academic papers stored in a vector database.
@@ -70,8 +67,9 @@ Rules:
 
 def call_model(messages: list[BaseMessage]) -> AIMessage:
     """Invoke the tool-calling model with the current message history."""
-    response = model_with_tools.invoke(
-        [SystemMessage(content=_SYSTEM_PROMPT)] + messages
+    response = call_with_circuit_breaker(
+        get_model_with_tools().invoke,
+        [SystemMessage(content=_SYSTEM_PROMPT)] + messages,
     )
     if not isinstance(response, AIMessage):
         raise TypeError(f"Expected AIMessage, got {type(response)!r}")
@@ -94,12 +92,62 @@ def stream_final_answer(messages: list[BaseMessage]) -> Iterator[str]:
         HumanMessage(content=_FINAL_ANSWER_PROMPT),
     ]
 
-    for chunk in llm.stream(prompt_messages):
+    stream_iter = call_with_circuit_breaker(get_llm().stream, prompt_messages)
+    for chunk in stream_iter:
         if not isinstance(chunk, AIMessageChunk):
             continue
         token = chunk.content if isinstance(chunk.content, str) else ""
         if token:
             yield token
+
+
+def _build_llm() -> ChatOpenAI:
+    client_kwargs: dict[str, Any] = {}
+    try:
+        import httpx  # pyright: ignore[reportMissingImports]
+
+        client_kwargs["http_client"] = httpx.Client(
+            timeout=config.LLM_TIMEOUT_SECONDS,
+            limits=httpx.Limits(
+                max_keepalive_connections=config.LLM_HTTP_KEEPALIVE_CONNECTIONS,
+                max_connections=config.LLM_HTTP_MAX_CONNECTIONS,
+            ),
+        )
+    except Exception:
+        client_kwargs = {}
+
+    return ChatOpenAI(
+        openai_api_base=config.OPENAI_API_BASE,
+        openai_api_key=config.OPENAI_API_KEY,
+        model_name=config.LLM_MODEL,
+        temperature=1.0,
+        timeout=config.LLM_TIMEOUT_SECONDS,
+        max_retries=config.LLM_MAX_RETRIES,
+        **client_kwargs,
+    )
+
+
+def get_llm() -> ChatOpenAI:
+    global _llm
+    if _llm is None:
+        with _llm_lock:
+            if _llm is None:
+                _llm = _build_llm()
+    return _llm
+
+
+def get_model_with_tools() -> Any:
+    global _llm
+    global _model_with_tools
+    if _model_with_tools is None:
+        with _llm_lock:
+            if _model_with_tools is None:
+                llm = _llm
+                if llm is None:
+                    llm = _build_llm()
+                    _llm = llm
+                _model_with_tools = llm.bind_tools(AGENT_TOOLS)
+    return _model_with_tools
 
 
 def execute_tool_calls(ai_message: AIMessage) -> list[ToolMessage]:
@@ -345,7 +393,16 @@ def run_agent_loop_events(
     all_tool_messages: list[ToolMessage] = []
 
     # We iterate over the stream_mode="values" to catch each state update
+    last_summary: dict[str, Any] = {
+        "count": 0,
+        "pages": [],
+        "chunk_types": {},
+        "pdf_names": [],
+    }
+    final_event: dict[str, Any] | None = None
+
     for event in agent_app.stream(current_state, stream_mode="values"):
+        final_event = event
         messages = event.get("messages", [])
         if len(messages) <= 1:
             continue
@@ -407,6 +464,7 @@ def run_agent_loop_events(
                     processed_msg_ids.add(msg_id)
                     all_tool_messages.append(tool_message)
                     summary = _summarize_tool_payload(tool_message)
+                    last_summary = summary
                     kind = _tool_event_kind(tool_message.name or "tool")
 
                     yield {
@@ -442,13 +500,15 @@ def run_agent_loop_events(
                         "type": "agent_visual_context",
                         "step": step,
                         "count": img_count,
-                        "pages": summary.get("pages", []),  # use the last tool's pages
+                        "pages": last_summary.get("pages", []),
                     }
 
     # Stream final answer after the graph reaches END
     # The stream already finishes and gives us the final state in the last `event`
-    final_messages = event.get("messages", [])
-    final_step = event.get("iteration_count", 0)
+    if final_event is None:
+        return
+    final_messages = final_event.get("messages", [])
+    final_step = final_event.get("iteration_count", 0)
 
     if final_step >= config.AGENT_MAX_ITERATIONS:
         yield {

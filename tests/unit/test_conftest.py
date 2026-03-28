@@ -194,23 +194,35 @@ class TestSampleDataFixtures:
 class TestConfigOverrides:
     """Tests for configuration overrides in test environment."""
 
-    def test_config_uses_test_env(self, test_env: dict[str, str]) -> None:
+    def test_config_uses_test_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify that config module picks up test environment values."""
+        import sys
+        
+        # Set mock values before importing config
+        monkeypatch.setenv("EMBEDDING_MODEL", "mock-model")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key-mock")
+        monkeypatch.setenv("LLM_MODEL", "mock-llm")
+        monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999/mock")
+        
+        # Remove config modules from cache to force fresh import
+        modules_to_remove = [key for key in sys.modules.keys() if key.startswith("config")]
+        for mod in modules_to_remove:
+            del sys.modules[mod]
+        
         try:
             import config.settings
         except ImportError:
             pytest.skip("config module not available")
 
-        import importlib
-
-        importlib.reload(config.settings)
-
         cfg = config.settings.config
         assert cfg.EMBEDDING_MODEL == "mock-model"
         assert cfg.LLM_MODEL == "mock-llm"
 
-    def test_no_gpu_required(self, test_env: dict[str, str]) -> None:
+    def test_no_gpu_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify that tests don't require GPU."""
+        # Set mock value
+        monkeypatch.setenv("EMBEDDING_MODEL", "mock-model")
+        
         # EMBEDDING_MODEL should be a mock, not a real model path
         assert "Qwen3-VL" not in os.environ.get("EMBEDDING_MODEL", "")
         assert "mock" in os.environ.get("EMBEDDING_MODEL", "").lower()

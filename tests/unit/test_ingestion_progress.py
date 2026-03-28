@@ -4,9 +4,12 @@ from src.core import ingestion
 
 
 class _StubParser:
+    last_output_dir: str = ""
+
     def __init__(self, output_dir: str, backend: str) -> None:
         self.output_dir = output_dir
         self.backend = backend
+        _StubParser.last_output_dir = output_dir
 
     @property
     def backend_subdir(self) -> str:
@@ -38,6 +41,7 @@ class _StubParser:
 
 def test_process_paper_reports_progress(monkeypatch) -> None:
     monkeypatch.setattr(ingestion, "MinerUParser", _StubParser)
+    monkeypatch.setattr(ingestion.config, "PARSED_OUTPUT_DIR", "/tmp/test-parsed")
 
     stages: list[tuple[str, int]] = []
 
@@ -57,3 +61,4 @@ def test_process_paper_reports_progress(monkeypatch) -> None:
         ("parsing", 10),
         ("chunking", 35),
     ]
+    assert _StubParser.last_output_dir == ingestion.config.PARSED_OUTPUT_DIR

@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
 import hashlib
 import os
 import re
@@ -8,7 +9,7 @@ import time
 import uuid
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import API_UPLOAD_DIR
@@ -24,8 +25,10 @@ from api.schemas import (
 from api.services import ingestion_job_service, paper_registry_service
 
 STAGED_UPLOADS_DIR = os.path.join(API_UPLOAD_DIR, "staged")
-_RUNNING_JOBS_LOCK = threading.Lock()
-_RUNNING_JOB_IDS: set[str] = set()
+_LEGACY_JOB_GUARD_LOCK = threading.Lock()
+_LEGACY_GUARDED_JOB_IDS: set[str] = set()
+_EXECUTOR_LOCK = threading.Lock()
+_BACKGROUND_EXECUTOR: Optional[Executor] = None
 
 
 def _get_vector_store():
@@ -66,17 +69,177 @@ def _sanitize_error_message(error: Exception) -> str:
     return normalized[:500]
 
 
-def _try_acquire_job_guard(job_id: str) -> bool:
-    with _RUNNING_JOBS_LOCK:
-        if job_id in _RUNNING_JOB_IDS:
+def _parse_bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    return normalized in ("1", "true", "yes", "on")
+
+
+def _use_db_job_lease() -> bool:
+    return _parse_bool_env("USE_DB_JOB_LEASE", False)
+
+
+def _get_job_lease_ttl_ms() -> int:
+    raw = os.getenv("JOB_LEASE_TTL_SECONDS", "300")
+    try:
+        seconds = int(raw)
+    except ValueError:
+        seconds = 300
+    return max(1, seconds) * 1000
+
+
+def _get_executor_type() -> str:
+    raw = os.getenv("EXECUTOR_TYPE", "thread").strip().lower()
+    if raw not in ("thread", "process"):
+        return "thread"
+    return raw
+
+
+def _get_background_workers() -> int:
+    raw = os.getenv("BACKGROUND_EXECUTOR_WORKERS", "2")
+    try:
+        workers = int(raw)
+    except ValueError:
+        workers = 2
+    cpu_count = os.cpu_count() or 2
+    return max(1, min(workers, cpu_count))
+
+
+def _get_background_executor() -> Executor:
+    global _BACKGROUND_EXECUTOR
+    if _BACKGROUND_EXECUTOR is not None:
+        return _BACKGROUND_EXECUTOR
+
+    with _EXECUTOR_LOCK:
+        if _BACKGROUND_EXECUTOR is not None:
+            return _BACKGROUND_EXECUTOR
+
+        workers = _get_background_workers()
+        if _get_executor_type() == "process":
+            _BACKGROUND_EXECUTOR = ProcessPoolExecutor(max_workers=workers)
+        else:
+            _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=workers)
+        return _BACKGROUND_EXECUTOR
+
+
+def _create_lease_owner() -> str:
+    return f"{os.getpid()}-{uuid.uuid4().hex}"
+
+
+def _try_acquire_legacy_job_guard(job_id: str) -> bool:
+    with _LEGACY_JOB_GUARD_LOCK:
+        if job_id in _LEGACY_GUARDED_JOB_IDS:
             return False
-        _RUNNING_JOB_IDS.add(job_id)
+        _LEGACY_GUARDED_JOB_IDS.add(job_id)
         return True
 
 
-def _release_job_guard(job_id: str) -> None:
-    with _RUNNING_JOBS_LOCK:
-        _RUNNING_JOB_IDS.discard(job_id)
+def _release_legacy_job_guard(job_id: str) -> None:
+    with _LEGACY_JOB_GUARD_LOCK:
+        _LEGACY_GUARDED_JOB_IDS.discard(job_id)
+
+
+async def _try_acquire_db_lease(
+    session: AsyncSession,
+    job_id: str,
+    lease_owner: str,
+) -> bool:
+    now = _now_ms()
+    expired_before = now - _get_job_lease_ttl_ms()
+    result = await session.execute(
+        text(
+            """
+            UPDATE ingestion_jobs
+            SET status = 'processing',
+                leased_at = :now,
+                leased_by = :lease_owner,
+                updated_at = :now
+            WHERE id = :job_id
+              AND (
+                (status = 'pending' AND (leased_at IS NULL OR leased_at < :expired_before))
+                OR (status = 'processing' AND leased_at IS NOT NULL AND leased_at < :expired_before)
+              )
+            """
+        ),
+        {
+            "job_id": job_id,
+            "now": now,
+            "lease_owner": lease_owner,
+            "expired_before": expired_before,
+        },
+    )
+    await session.flush()
+    return (result.rowcount or 0) > 0
+
+
+async def _refresh_db_lease(
+    session: AsyncSession,
+    job_id: str,
+    lease_owner: str,
+) -> None:
+    now = _now_ms()
+    await session.execute(
+        text(
+            """
+            UPDATE ingestion_jobs
+            SET leased_at = :now,
+                updated_at = :now
+            WHERE id = :job_id AND leased_by = :lease_owner
+            """
+        ),
+        {"job_id": job_id, "lease_owner": lease_owner, "now": now},
+    )
+    await session.flush()
+
+
+async def _release_db_lease(
+    session: AsyncSession,
+    job_id: str,
+    lease_owner: str,
+) -> None:
+    now = _now_ms()
+    await session.execute(
+        text(
+            """
+            UPDATE ingestion_jobs
+            SET leased_at = NULL,
+                leased_by = NULL,
+                updated_at = :now
+            WHERE id = :job_id AND leased_by = :lease_owner
+            """
+        ),
+        {"job_id": job_id, "lease_owner": lease_owner, "now": now},
+    )
+    await session.flush()
+
+
+async def _acquire_job_guard(session: AsyncSession, job_id: str) -> Optional[str]:
+    if _use_db_job_lease():
+        lease_owner = _create_lease_owner()
+        if await _try_acquire_db_lease(session, job_id, lease_owner):
+            return lease_owner
+        return None
+
+    if _try_acquire_legacy_job_guard(job_id):
+        return "legacy"
+    return None
+
+
+async def _release_job_guard_safe(
+    session: AsyncSession,
+    job_id: str,
+    lease_owner: Optional[str],
+) -> None:
+    if lease_owner is None:
+        return
+
+    if _use_db_job_lease() and lease_owner != "legacy":
+        await _release_db_lease(session, job_id, lease_owner)
+        return
+
+    _release_legacy_job_guard(job_id)
 
 
 def stage_uploaded_file(file_content: bytes, filename: str, job_id: str) -> str:
@@ -261,6 +424,8 @@ async def retry_failed_job(
         stage="queued",
         progress=0,
         error_message=None,
+        leased_at=None,
+        leased_by=None,
     )
     await ingestion_job_service.increment_retry_count(session, job_id)
 
@@ -278,7 +443,8 @@ async def run_ingestion_job(
     from api.services import paper_service
     from src.core.ingestion import INGESTION_SCHEMA_VERSION
 
-    if not _try_acquire_job_guard(job_id):
+    lease_owner = await _acquire_job_guard(session, job_id)
+    if lease_owner is None:
         return
 
     try:
@@ -286,21 +452,33 @@ async def run_ingestion_job(
         if job is None:
             return
 
-        if job.status == "processing":
-            return
+        if not _use_db_job_lease():
+            if job.status == "processing":
+                return
 
-        if job.status != "pending":
-            return
+            if job.status != "pending":
+                return
 
         async def _update_job_progress(stage: str, progress: int) -> None:
+            kwargs = {
+                "session": session,
+                "job_id": job_id,
+                "status": "processing",
+                "stage": stage,
+                "progress": progress,
+                "error_message": None,
+            }
+
+            if _use_db_job_lease() and lease_owner != "legacy":
+                kwargs["leased_at"] = _now_ms()
+                kwargs["leased_by"] = lease_owner
+
             await ingestion_job_service.update_ingestion_job(
-                session=session,
-                job_id=job_id,
-                status="processing",
-                stage=stage,
-                progress=progress,
-                error_message=None,
+                **kwargs,
             )
+
+            if _use_db_job_lease() and lease_owner != "legacy":
+                await _refresh_db_lease(session, job_id, lease_owner)
 
         await _update_job_progress("parsing", 10)
 
@@ -385,7 +563,7 @@ async def run_ingestion_job(
             error_message=_sanitize_error_message(error),
         )
     finally:
-        _release_job_guard(job_id)
+        await _release_job_guard_safe(session, job_id, lease_owner)
 
 
 async def run_ingestion_job_background(job_id: str) -> None:
@@ -400,14 +578,9 @@ async def run_ingestion_job_background(job_id: str) -> None:
             raise
 
 
-def start_background_ingestion(job_id: str) -> None:
-    def _run() -> None:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_ingestion_job_background(job_id))
-        finally:
-            loop.close()
+def _run_ingestion_job_background_sync(job_id: str) -> None:
+    asyncio.run(run_ingestion_job_background(job_id))
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
+
+def start_background_ingestion(job_id: str) -> None:
+    _get_background_executor().submit(_run_ingestion_job_background_sync, job_id)

@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 
 from config.settings import config
 from src.utils.logger import get_logger
+from src.utils.resilience import call_with_circuit_breaker
 
 logger = get_logger(__name__)
 
@@ -150,7 +151,7 @@ class MultimodalAnswerer:
             SystemMessage(content=_SYNTHESIS_PROMPT),
             HumanMessage(content=self._build_user_content(question, evidence)),
         ]
-        return self.llm.invoke(messages)
+        return call_with_circuit_breaker(self.llm.invoke, messages)
 
     def stream_answer(
         self,
@@ -161,7 +162,8 @@ class MultimodalAnswerer:
             SystemMessage(content=_SYNTHESIS_PROMPT),
             HumanMessage(content=self._build_user_content(question, evidence)),
         ]
-        for chunk in self.llm.stream(messages):
+        stream_iter = call_with_circuit_breaker(self.llm.stream, messages)
+        for chunk in stream_iter:
             if not isinstance(chunk, AIMessageChunk):
                 continue
             token = chunk.content if isinstance(chunk.content, str) else ""

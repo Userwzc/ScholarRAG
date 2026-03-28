@@ -34,7 +34,10 @@ def process_paper(
     Parses a PDF, chunks its content, and prepares multimodal inputs and metadatas for vector storage.
     Returns: (multimodal_inputs, metadata_list, parsed_data)
     """
-    parser = MinerUParser(output_dir="./data/parsed", backend=config.MINERU_BACKEND)
+    parser = MinerUParser(
+        output_dir=config.PARSED_OUTPUT_DIR,
+        backend=config.MINERU_BACKEND,
+    )
 
     _emit_progress(progress_callback, "parsing", 10)
     parsed_data = parser.parse_pdf(pdf_path)

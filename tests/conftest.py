@@ -42,6 +42,24 @@ env -u OPENAI_API_KEY -u EMBEDDING_MODEL pytest tests -q -k "not integration"
 
 import os
 import sys
+
+# CRITICAL: Set test environment variables BEFORE any imports
+# This ensures config/settings.py reads these values instead of .env
+os.environ["EMBEDDING_MODEL"] = "mock-model"
+os.environ["OPENAI_API_KEY"] = "test-key-mock"
+os.environ["OPENAI_API_BASE"] = "http://localhost:9999/mock"
+os.environ["LLM_MODEL"] = "mock-llm"
+os.environ["QDRANT_HOST"] = "localhost"
+os.environ["QDRANT_PORT"] = "6333"
+os.environ["QDRANT_COLLECTION_NAME"] = "test_collection"
+os.environ["RAG_TOP_K"] = "5"
+os.environ["SCORE_THRESHOLD"] = "0.3"
+os.environ["AGENT_MAX_ITERATIONS"] = "5"
+os.environ["ENABLE_HYBRID"] = "false"
+os.environ["MINERU_BACKEND"] = "pipeline"
+os.environ["MINERU_MODEL_SOURCE"] = "local"
+os.environ["PDF_STORAGE_DIR"] = "/tmp/scholarrag_test_pdfs"
+
 import tempfile
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
@@ -98,10 +116,17 @@ def test_env() -> Generator[dict[str, str], None, None]:
         "DATABASE_PATH": "",  # Will be set by temp_db fixture
     }
 
-    # Save original values and set test values
+    # Save original values and set test values BEFORE any imports
     for key, value in test_env_vars.items():
         original_env[key] = os.environ.get(key)
         os.environ[key] = value
+    
+    # Also set these in os.environ immediately to override .env file values
+    # This ensures that even if config.settings was imported earlier, 
+    # these values are already in the environment
+    os.environ["EMBEDDING_MODEL"] = "mock-model"
+    os.environ["OPENAI_API_KEY"] = "test-key-mock"
+    os.environ["LLM_MODEL"] = "mock-llm"
 
     yield test_env_vars
 

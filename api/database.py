@@ -133,6 +133,8 @@ def _apply_migration_1(conn: Connection) -> None:
                 source_file_path TEXT NOT NULL,
                 result_summary TEXT,
                 error_message TEXT,
+                leased_at INTEGER,
+                leased_by TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 FOREIGN KEY(paper_id) REFERENCES papers(id) ON DELETE CASCADE,
@@ -179,11 +181,27 @@ def _apply_migration_2(conn: Connection) -> None:
             conn.execute(text(statement))
 
 
+def _apply_migration_3(conn: Connection) -> None:
+    table_name = "ingestion_jobs"
+    if not _table_exists(conn, table_name):
+        return
+
+    alter_statements: dict[str, str] = {
+        "leased_at": "ALTER TABLE ingestion_jobs ADD COLUMN leased_at INTEGER",
+        "leased_by": "ALTER TABLE ingestion_jobs ADD COLUMN leased_by TEXT",
+    }
+
+    for column_name, statement in alter_statements.items():
+        if not _column_exists(conn, table_name, column_name):
+            conn.execute(text(statement))
+
+
 def _run_migrations(conn: Connection) -> None:
     _ensure_schema_migrations_table(conn)
     migrations: list[tuple[int, str, Callable[[Connection], None]]] = [
         (1, "create_papers_versions_jobs", _apply_migration_1),
         (2, "ensure_ingestion_job_columns", _apply_migration_2),
+        (3, "add_ingestion_job_lease_columns", _apply_migration_3),
     ]
 
     for version, name, migration in migrations:

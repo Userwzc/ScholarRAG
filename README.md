@@ -47,6 +47,8 @@ ScholarRAG 是一个专为学术研究者设计的**多模态 RAG 系统**。它
 - **实时进度**：通过轮询获取处理进度（解析、嵌入、存储）
 - **任务重试**：失败任务支持一键重试，自动清理后重新处理
 - **持久化状态**：所有任务状态保存在 SQLite，重启后不会丢失
+- **数据库租约防重入**：支持基于 `ingestion_jobs.status + leased_at + leased_by` 的租约锁，避免多 worker 重复处理同一任务
+- **可配置执行器**：后台任务执行器可在线程池/进程池间切换，CPU 密集型 PDF 解析可用进程池并行
 
 ### 🧪 离线评估流水线
 - **6 种评估指标**：检索命中率、页面命中率、关键词匹配率、引用覆盖率、版本泄漏率、失败查询率
@@ -189,6 +191,26 @@ npm run dev
 # 访问 http://localhost:5173
 ```
 
+### 4. Docker 部署
+
+```bash
+docker build -t scholarrag .
+docker compose up -d
+
+# 健康检查
+curl http://localhost:8000/api/health
+
+# Prometheus 指标
+curl http://localhost:8000/metrics
+```
+
+容器编排会同时拉起：
+- `api`（FastAPI）
+- `qdrant`（向量数据库）
+- `redis`（缓存/队列基础组件）
+
+`.dockerignore` 已默认排除 `data/`、`models/`、`qdrant_storage/` 等大目录以减少镜像体积。
+
 ---
 
 ## 📖 使用指南
@@ -234,6 +256,14 @@ npm run dev
 | `AGENT_MAX_ITERATIONS` | 代理最大迭代次数 | `10` |
 | `ENABLE_HYBRID` | 启用混合检索 | `false` |
 | `MINERU_BACKEND` | MinerU 后端 | `pipeline` |
+| `PDF_STORAGE_DIR` | PDF 文件存储目录 | `./data/pdfs` |
+| `PARSED_OUTPUT_DIR` | MinerU 解析输出目录 | `./data/parsed` |
+| `LOG_LEVEL` | 日志级别 | `INFO` |
+| `LOG_FORMAT` | 日志格式模板 | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` |
+| `USE_DB_JOB_LEASE` | 启用数据库任务租约（false 时保持旧 guard 逻辑） | `false` |
+| `JOB_LEASE_TTL_SECONDS` | 任务租约过期秒数（过期后可被其他 worker 接管） | `300` |
+| `EXECUTOR_TYPE` | 后台执行器类型（`thread`/`process`） | `thread` |
+| `BACKGROUND_EXECUTOR_WORKERS` | 后台执行器并行 worker 数 | `2` |
 
 ---
 
@@ -253,6 +283,8 @@ npm run dev
 ### 后端
 - FastAPI - 高性能 Web 框架
 - Pydantic v2 - 数据验证
+- Prometheus Client - 指标暴露
+- Tenacity - 外部调用重试/熔断保护
 
 ### 前端
 - React 19 - UI 框架

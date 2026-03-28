@@ -35,6 +35,7 @@ class Config:
 
     # Local Qwen3-VL embedding model path (relative to project root).
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "models/Qwen3-VL-Embedding-2B")
+    EMBEDDING_BATCH_SIZE: int = _parse_int_env("EMBEDDING_BATCH_SIZE", 32)
 
     # LLM served via an OpenAI-compatible API endpoint.
     LLM_MODEL: str = os.getenv("LLM_MODEL", "Pro/moonshotai/Kimi-K2.5")
@@ -59,6 +60,8 @@ class Config:
     # PDF storage directory for reader functionality
     PDF_STORAGE_DIR: str = os.getenv("PDF_STORAGE_DIR", "./data/pdfs")
 
+    PARSED_OUTPUT_DIR: str = os.getenv("PARSED_OUTPUT_DIR", "./data/parsed")
+
     # Hybrid retrieval mode (dense + sparse vectors)
     # When enabled, uses both dense embeddings and BM25 sparse embeddings
     # Requires: pip install fastembed
@@ -66,6 +69,20 @@ class Config:
 
     # Qdrant collection name for storing paper chunks.
     QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME", "papers_rag")
+    QDRANT_TIMEOUT_SECONDS: int = _parse_int_env("QDRANT_TIMEOUT_SECONDS", 10)
+    QDRANT_HTTP_KEEPALIVE_CONNECTIONS: int = _parse_int_env(
+        "QDRANT_HTTP_KEEPALIVE_CONNECTIONS", 20
+    )
+    QDRANT_HTTP_MAX_CONNECTIONS: int = _parse_int_env(
+        "QDRANT_HTTP_MAX_CONNECTIONS", 100
+    )
+
+    LLM_TIMEOUT_SECONDS: int = _parse_int_env("LLM_TIMEOUT_SECONDS", 120)
+    LLM_HTTP_KEEPALIVE_CONNECTIONS: int = _parse_int_env(
+        "LLM_HTTP_KEEPALIVE_CONNECTIONS", 20
+    )
+    LLM_HTTP_MAX_CONNECTIONS: int = _parse_int_env("LLM_HTTP_MAX_CONNECTIONS", 100)
+    LLM_MAX_RETRIES: int = _parse_int_env("LLM_MAX_RETRIES", 2)
 
 
 config = Config()

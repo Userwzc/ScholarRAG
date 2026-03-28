@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 import argparse
 import os
 import sys
@@ -7,7 +9,8 @@ os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
 warnings.filterwarnings("ignore", message="Class .* is implemented in both")
 
-from dotenv import load_dotenv  # noqa: E402
+from dotenv import load_dotenv  # pyright: ignore[reportMissingImports] # noqa: E402
+from config.settings import config  # noqa: E402
 
 # Must be the very first call so .env values override any pre-set system
 # environment variables (e.g. MINERU_MODEL_SOURCE) before any module-level
@@ -19,6 +22,8 @@ load_dotenv(override=True)
 # Importing it triggers CUDA initialization which conflicts with MinerU's
 # hybrid-auto-engine vLLM backend when both are used in the same process.
 from src.utils.logger import get_logger  # noqa: E402
+from src.utils.exceptions import AppError, ExternalServiceError  # noqa: E402
+from src.utils.stream_output import log_status, stream_output  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -63,7 +68,7 @@ def query_agent(question: str) -> None:
                 phase = event.get("phase", "thinking")
                 step = event.get("step", "?")
                 text = event.get("text", "")
-                print(f"[agent:{phase}:{step}] {text}", flush=True)
+                log_status(f"[agent:{phase}:{step}] {text}")
             elif event_type == "tool_call":
                 tool = event.get("tool", "tool")
                 kind = event.get("kind", "tool")
@@ -78,11 +83,11 @@ def query_agent(question: str) -> None:
                 }
                 label = labels.get(kind, tool)
                 if query_text:
-                    print(f"[{label}] {query_text}", flush=True)
+                    log_status(f"[{label}] {query_text}")
                 elif pdf_name is not None and page_idx is not None:
-                    print(f"[{label}] {pdf_name}:{page_idx}", flush=True)
+                    log_status(f"[{label}] {pdf_name}:{page_idx}")
                 else:
-                    print(f"[{label}] {tool}", flush=True)
+                    log_status(f"[{label}] {tool}")
             elif event_type == "tool_result":
                 tool = event.get("tool", "tool")
                 kind = event.get("kind", "tool")
@@ -95,34 +100,37 @@ def query_agent(question: str) -> None:
                 }
                 label = labels.get(kind, f"{tool}-result")
                 page_text = f" on {', '.join(pages[:3])}" if pages else ""
-                print(f"[{label}] {count} item(s){page_text}", flush=True)
+                log_status(f"[{label}] {count} item(s){page_text}")
             elif event_type == "agent_observation":
                 step = event.get("step", "?")
                 text = event.get("text", "")
-                print(f"[agent:observe:{step}] {text}", flush=True)
+                log_status(f"[agent:observe:{step}] {text}")
             elif event_type == "agent_visual_context":
                 step = event.get("step", "?")
                 count = event.get("count", 0)
                 pages = event.get("pages", [])
                 page_text = f" from {', '.join(pages[:3])}" if pages else ""
-                print(
-                    f"[agent:vision:{step}] attached {count} visual(s){page_text}",
-                    flush=True,
+                log_status(
+                    f"[agent:vision:{step}] attached {count} visual(s){page_text}"
                 )
             elif event_type == "answer_started":
-                print("[answer] Streaming final response", flush=True)
-                print()
+                log_status("[answer] Streaming final response")
+                stream_output("")
             elif event_type == "answer_token":
                 token = event.get("text", "")
                 if token:
-                    print(token, end="", flush=True)
+                    stream_output(token, end="")
                     final_content.append(token)
-    except Exception as exc:
+    except AppError as exc:
         logger.error("Agent stream failed: %s", exc, exc_info=True)
+        return
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        error = ExternalServiceError("Agent stream failed", log_message=str(exc))
+        logger.error("%s: %s", error.message, exc, exc_info=True)
         return
 
     if final_content:
-        print()
+        stream_output("")
         logger.debug("Agent answer: %s", "".join(final_content))
     else:
         logger.warning(
@@ -135,7 +143,7 @@ def delete_paper(pdf_name: str) -> None:
     from src.ingest.paper_manager import PaperManager
 
     logger.info("Deleting paper: %s …", pdf_name)
-    manager = PaperManager(output_dir="./data/parsed")
+    manager = PaperManager(output_dir=config.PARSED_OUTPUT_DIR)
     manager.delete_paper(pdf_name, delete_from_vector_store=True)
 
 

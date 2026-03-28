@@ -140,6 +140,8 @@ class IngestionJob(Base):
     source_file_path: Mapped[str] = mapped_column(Text, nullable=False)
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    leased_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    leased_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
