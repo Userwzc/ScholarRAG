@@ -19,14 +19,6 @@ class QueryResponse(BaseModel):
     message: Optional[str] = None
 
 
-class PaperUploadResponse(BaseModel):
-    pdf_name: str
-    title: str
-    authors: str
-    chunk_count: int
-    message: str
-
-
 class PaperItem(BaseModel):
     pdf_name: str
     title: str

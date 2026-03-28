@@ -15,40 +15,12 @@ from api.schemas import (
     PaperListResponse,
     PaperVersionItem,
     PaperVersionListResponse,
-    PaperUploadResponse,
     TOCResponse,
 )
 from api.services import async_upload_service, paper_registry_service, paper_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-@router.post("/upload", response_model=PaperUploadResponse, deprecated=True)
-async def upload_paper(file: UploadFile = File(...)):
-    """⚠️ 已废弃: 请使用 POST /api/papers/uploads (异步上传)
-
-    此接口使用同步处理，大文件可能超时，且无法追踪进度。
-    请迁移到异步上传接口：
-    1. POST /api/papers/uploads - 创建上传任务
-    2. GET /api/papers/uploads/{job_id} - 查询处理进度
-    """
-    if file.filename is None or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-
-    try:
-        content = await file.read()
-        file_path = paper_service.save_uploaded_file(content, file.filename)
-
-        try:
-            result = paper_service.upload_paper(file_path)
-        finally:
-            paper_service.cleanup_uploaded_file(file_path)
-
-        return result
-    except Exception as e:
-        logger.exception("Failed to upload paper: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to upload paper")
 
 
 @router.post("/uploads", response_model=IngestionJobCreateResponse, status_code=202)

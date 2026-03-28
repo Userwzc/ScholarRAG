@@ -1,16 +1,13 @@
 import os
 import shutil
-import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from api.config import API_UPLOAD_DIR
 from api.schemas import (
     ChunkItem,
     ChunkListResponse,
     PaperDetail,
     PaperItem,
-    PaperUploadResponse,
     TOCItem,
     TOCResponse,
 )
@@ -142,28 +139,6 @@ def _build_filter(
             )
         )
     return models.Filter(must=must_conditions) if must_conditions else None
-
-
-def upload_paper(file_path: str) -> PaperUploadResponse:
-    """⚠️ 已废弃: 请使用异步上传服务
-
-    此同步方法会阻塞直到处理完成，不适合大文件。
-    请迁移到: api/services/async_upload_service.py
-    """
-    warnings.warn(
-        "upload_paper() is deprecated. Use async_upload_service.create_async_upload_job() instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    result = ingest_paper_file(file_path=file_path, save_markdown=False)
-
-    return PaperUploadResponse(
-        pdf_name=result["pdf_name"],
-        title=result["title"],
-        authors=result["authors"],
-        chunk_count=result["chunk_count"],
-        message="Paper uploaded and processed successfully",
-    )
 
 
 def list_papers(version: Optional[int] = None) -> list[PaperItem]:
@@ -302,19 +277,6 @@ def delete_paper(pdf_name: str) -> bool:
 
     # Delete from vector store and parsed files (manager handles both)
     return manager.delete_paper(pdf_name, delete_from_vector_store=True)
-
-
-def save_uploaded_file(file_content: bytes, filename: str) -> str:
-    os.makedirs(API_UPLOAD_DIR, exist_ok=True)
-    file_path = os.path.join(API_UPLOAD_DIR, filename)
-    with open(file_path, "wb") as f:
-        f.write(file_content)
-    return file_path
-
-
-def cleanup_uploaded_file(file_path: str) -> None:
-    if os.path.exists(file_path):
-        os.remove(file_path)
 
 
 def get_pdf_path(pdf_name: str) -> Optional[str]:
