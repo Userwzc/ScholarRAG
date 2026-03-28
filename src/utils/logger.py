@@ -1,12 +1,10 @@
-import os
 import logging
 import sys
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-LOG_FORMAT = os.getenv(
-    "LOG_FORMAT",
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+from config.settings import config
+
+LOG_LEVEL = config.LOG_LEVEL
+LOG_FORMAT = config.LOG_FORMAT
 
 
 def _build_stream_handler() -> logging.StreamHandler:

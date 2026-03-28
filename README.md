@@ -145,6 +145,23 @@ pip install -r requirements.txt
 
 # 安装 MinerU（PDF 解析器）
 pip install -U mineru[all]
+
+# 下载 Qwen3-VL-Embedding-2B 嵌入模型（约 4GB）
+# 方式一：使用 git-lfs 从 HuggingFace 下载
+mkdir -p models
+cd models
+git lfs install
+git clone https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B
+cd ..
+
+# 方式二：使用 modelscope 下载（国内推荐）
+# pip install modelscope
+# mkdir -p models
+# python -c "from modelscope import snapshot_download; snapshot_download('Qwen/Qwen3-VL-Embedding-2B', cache_dir='models', local_dir='models/Qwen3-VL-Embedding-2B')"
+
+# 方式三：使用 HuggingFace 镜像
+# export HF_ENDPOINT=https://hf-mirror.com
+# huggingface-cli download Qwen/Qwen3-VL-Embedding-2B --local-dir models/Qwen3-VL-Embedding-2B
 ```
 
 ### 2. 配置环境

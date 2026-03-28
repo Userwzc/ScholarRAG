@@ -1,15 +1,14 @@
-import os
-from pathlib import Path
+"""API configuration module.
 
-from dotenv import load_dotenv
+This module re-exports configuration from the central config module.
+All environment variable handling is now centralized in config/settings.py.
+"""
 
-load_dotenv(override=True)
+from config.settings import config
 
-API_HOST = os.getenv("API_HOST", "0.0.0.0")
-API_PORT = int(os.getenv("API_PORT", "8000"))
-API_UPLOAD_DIR = os.getenv("API_UPLOAD_DIR", "./data/uploads")
-
-DATABASE_PATH = os.getenv(
-    "DATABASE_PATH", str(Path(__file__).parent.parent / "data" / "conversations.db")
-)
-DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_PATH}"
+# Re-export for backward compatibility
+API_HOST = config.API_HOST
+API_PORT = config.API_PORT
+API_UPLOAD_DIR = config.API_UPLOAD_DIR
+DATABASE_PATH = config.DATABASE_PATH
+DATABASE_URL = config.DATABASE_URL
