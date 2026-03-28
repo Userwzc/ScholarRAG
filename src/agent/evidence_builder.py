@@ -26,7 +26,7 @@ def _coerce_text(content: Any) -> str:
 
 def _parse_tool_payload(message: ToolMessage) -> list[dict[str, Any]]:
     payload = getattr(message, "artifact", None)
-    
+
     if payload is None and isinstance(message.content, dict):
         payload = message.content
 
@@ -93,12 +93,10 @@ def _page_support_text(
             models.Filter(
                 must=[
                     models.FieldCondition(
-                        key="metadata.pdf_name",
-                        match=models.MatchValue(value=pdf_name)
+                        key="metadata.pdf_name", match=models.MatchValue(value=pdf_name)
                     ),
                     models.FieldCondition(
-                        key="metadata.page_idx",
-                        match=models.MatchValue(value=page_idx)
+                        key="metadata.page_idx", match=models.MatchValue(value=page_idx)
                     ),
                 ]
             ),

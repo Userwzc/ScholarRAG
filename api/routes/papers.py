@@ -58,7 +58,9 @@ async def async_upload_paper(file: UploadFile = File(...)):
     except (OSError, RuntimeError, ValueError, TypeError, SQLAlchemyError) as exc:
         logger.exception("Failed to start async upload: %s", exc)
         raise _as_http_exception(
-            ExternalServiceError("Failed to start upload processing", log_message=str(exc))
+            ExternalServiceError(
+                "Failed to start upload processing", log_message=str(exc)
+            )
         )
 
 
@@ -85,7 +87,12 @@ async def retry_job(job_id: str):
             raise _as_http_exception(NotFoundError("Job not found"))
 
         if job.status != "failed":
-            raise HTTPException(status_code=409, detail=app_error_to_dict(ValidationError("Retry is only allowed for failed jobs")))
+            raise HTTPException(
+                status_code=409,
+                detail=app_error_to_dict(
+                    ValidationError("Retry is only allowed for failed jobs")
+                ),
+            )
 
         result = await async_upload_service.retry_failed_job(session, job_id)
         if result is None:
@@ -112,7 +119,9 @@ async def reindex_paper(pdf_name: str):
     except (OSError, RuntimeError, ValueError, TypeError, SQLAlchemyError) as exc:
         logger.exception("Failed to start reindex job: %s", exc)
         raise _as_http_exception(
-            ExternalServiceError("Failed to start reindex processing", log_message=str(exc))
+            ExternalServiceError(
+                "Failed to start reindex processing", log_message=str(exc)
+            )
         )
 
 

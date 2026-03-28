@@ -11,7 +11,9 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-async def get_paper_by_pdf_name(session: AsyncSession, pdf_name: str) -> Optional[Paper]:
+async def get_paper_by_pdf_name(
+    session: AsyncSession, pdf_name: str
+) -> Optional[Paper]:
     result = await session.execute(select(Paper).where(Paper.pdf_name == pdf_name))
     return result.scalar_one_or_none()
 

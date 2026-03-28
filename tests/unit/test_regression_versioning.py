@@ -349,7 +349,10 @@ class TestVersionFlipping:
                 }
 
             with (
-                patch("api.services.paper_service.ingest_paper_file", side_effect=fake_ingest),
+                patch(
+                    "api.services.paper_service.ingest_paper_file",
+                    side_effect=fake_ingest,
+                ),
                 patch("api.services.async_upload_service._get_vector_store") as mock_vs,
             ):
                 mock_vs.return_value.mark_paper_chunks_non_current.return_value = 1
@@ -404,7 +407,10 @@ class TestVersionFlipping:
                 }
 
             with (
-                patch("api.services.paper_service.ingest_paper_file", side_effect=fake_ingest),
+                patch(
+                    "api.services.paper_service.ingest_paper_file",
+                    side_effect=fake_ingest,
+                ),
                 patch("api.services.async_upload_service._get_vector_store") as mock_vs,
             ):
                 mock_vs.return_value.mark_paper_chunks_non_current.return_value = 1

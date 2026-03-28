@@ -471,7 +471,10 @@ def _search_visuals_impl(
 
     visual_chunk_types = chunk_types or ["table", "image"]
     visual_query = query
-    if figure_or_table_label and figure_or_table_label.casefold() not in query.casefold():
+    if (
+        figure_or_table_label
+        and figure_or_table_label.casefold() not in query.casefold()
+    ):
         visual_query = f"{query} {figure_or_table_label}"
 
     cache_filters: dict[str, Any] = {

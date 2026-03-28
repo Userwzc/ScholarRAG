@@ -120,9 +120,9 @@ def test_env() -> Generator[dict[str, str], None, None]:
     for key, value in test_env_vars.items():
         original_env[key] = os.environ.get(key)
         os.environ[key] = value
-    
+
     # Also set these in os.environ immediately to override .env file values
-    # This ensures that even if config.settings was imported earlier, 
+    # This ensures that even if config.settings was imported earlier,
     # these values are already in the environment
     os.environ["EMBEDDING_MODEL"] = "mock-model"
     os.environ["OPENAI_API_KEY"] = "test-key-mock"

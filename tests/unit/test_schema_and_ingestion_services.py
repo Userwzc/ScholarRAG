@@ -12,8 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from api.database import _bootstrap_schema  # noqa: E402
 from api.schemas import MessageCreate  # noqa: E402
 from api.services import conversation_service  # noqa: E402
-from api.services.ingestion_job_service import create_ingestion_job, update_ingestion_job  # noqa: E402
-from api.services.paper_registry_service import create_or_get_paper, create_paper_version  # noqa: E402
+from api.services.ingestion_job_service import (
+    create_ingestion_job,
+    update_ingestion_job,
+)  # noqa: E402
+from api.services.paper_registry_service import (
+    create_or_get_paper,
+    create_paper_version,
+)  # noqa: E402
 
 
 @pytest.mark.asyncio
@@ -120,7 +126,9 @@ async def test_job_and_version_rows_persist_after_restart() -> None:
 
     database_url = f"sqlite+aiosqlite:///{db_path}"
     engine = create_async_engine(database_url, echo=False)
-    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    session_maker = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with engine.begin() as conn:
         await conn.run_sync(_bootstrap_schema)
@@ -190,10 +198,14 @@ async def test_conversation_crud_path_still_works(db_session: AsyncSession) -> N
         content="hello",
         created_at=123,
     )
-    created = await conversation_service.add_message(db_session, conversation_id, message)
+    created = await conversation_service.add_message(
+        db_session, conversation_id, message
+    )
     assert created is not None
 
-    conversation = await conversation_service.get_conversation(db_session, conversation_id)
+    conversation = await conversation_service.get_conversation(
+        db_session, conversation_id
+    )
     assert conversation is not None
     assert len(conversation.messages) == 1
     assert conversation.messages[0].content == "hello"

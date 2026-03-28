@@ -238,7 +238,9 @@ class MultimodalQdrantStore(QdrantVectorStore):
         return all_ids
 
     def _resolve_embedding_batch_size(self, batch_size: int | None) -> int:
-        requested = batch_size if batch_size is not None else config.EMBEDDING_BATCH_SIZE
+        requested = (
+            batch_size if batch_size is not None else config.EMBEDDING_BATCH_SIZE
+        )
         requested = max(1, int(requested))
         if not torch.cuda.is_available():
             return requested

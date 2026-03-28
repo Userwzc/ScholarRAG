@@ -62,7 +62,9 @@ class EvaluationReport:
     top_k: int = 5
     metrics: EvaluationMetrics = field(default_factory=EvaluationMetrics)
     thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
-    verdict: ThresholdVerdict = field(default_factory=lambda: ThresholdVerdict(passed=True))
+    verdict: ThresholdVerdict = field(
+        default_factory=lambda: ThresholdVerdict(passed=True)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -208,7 +210,10 @@ class EvaluationRunner:
 
         # Check version leak across all results
         version_leak = check_version_leak(
-            [{"metadata": r.get("payload", {}).get("metadata", {})} for r in search_results]
+            [
+                {"metadata": r.get("payload", {}).get("metadata", {})}
+                for r in search_results
+            ]
         )
 
         return QueryResult(
@@ -345,7 +350,9 @@ def print_report_summary(report: EvaluationReport) -> None:
     print(f"  Page Hit Rate: {report.metrics.page_hit_rate:.2%}")
     print(f"  Keyword Match Rate: {report.metrics.keyword_match_rate:.2%}")
     print(f"  Citation Coverage Rate: {report.metrics.citation_coverage_rate:.2%}")
-    print(f"  Current Version Leak Rate: {report.metrics.current_version_leak_rate:.2%}")
+    print(
+        f"  Current Version Leak Rate: {report.metrics.current_version_leak_rate:.2%}"
+    )
     print(f"  Failed Query Rate: {report.metrics.failed_query_rate:.2%}")
     print(f"\n{'─' * 40}")
     print("Thresholds:")
@@ -353,7 +360,9 @@ def print_report_summary(report: EvaluationReport) -> None:
     print(f"  Page Hit Rate >= {report.thresholds.page_hit_rate:.2%}")
     print(f"  Keyword Match Rate >= {report.thresholds.keyword_match_rate:.2%}")
     print(f"  Citation Coverage Rate >= {report.thresholds.citation_coverage_rate:.2%}")
-    print(f"  Current Version Leak Rate <= {report.thresholds.current_version_leak_rate:.2%}")
+    print(
+        f"  Current Version Leak Rate <= {report.thresholds.current_version_leak_rate:.2%}"
+    )
     print(f"  Failed Query Rate <= {report.thresholds.failed_query_rate:.2%}")
     print(f"\n{'─' * 40}")
 

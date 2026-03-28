@@ -6,7 +6,13 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
@@ -51,7 +57,9 @@ Answer rules:
 
 
 def call_model(messages: list[BaseMessage]) -> AIMessage:
-    response = model_with_tools.invoke([SystemMessage(content=_SYSTEM_PROMPT)] + messages)
+    response = model_with_tools.invoke(
+        [SystemMessage(content=_SYSTEM_PROMPT)] + messages
+    )
     if not isinstance(response, AIMessage):
         raise TypeError(f"Expected AIMessage, got {type(response)!r}")
     return response
@@ -79,7 +87,9 @@ def execute_tool_calls(ai_message: AIMessage) -> list[ToolMessage]:
                 artifact = None
 
         tool_messages.append(
-            ToolMessage(content=content, tool_call_id=tool_call_id, name=name, artifact=artifact)
+            ToolMessage(
+                content=content, tool_call_id=tool_call_id, name=name, artifact=artifact
+            )
         )
 
     return tool_messages
@@ -221,7 +231,9 @@ def tools_node(state: AgentState) -> AgentState:
 
     messages_to_add: list[BaseMessage] = list(tool_messages)
     if new_visuals:
-        visual_message = _build_visual_context_message(state["question"], new_visuals[:3])
+        visual_message = _build_visual_context_message(
+            state["question"], new_visuals[:3]
+        )
         if visual_message is not None:
             messages_to_add.append(visual_message)
 

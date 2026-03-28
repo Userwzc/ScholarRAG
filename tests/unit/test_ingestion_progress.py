@@ -21,7 +21,9 @@ class _StubParser:
             "title": "Stub Paper",
         }
 
-    def chunk_content(self, parsed_data: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def chunk_content(
+        self, parsed_data: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         return (
             [
                 {

@@ -50,7 +50,9 @@ class TestJobStateTransitions:
         assert job.progress == 0
 
     @pytest.mark.asyncio
-    async def test_job_transitions_to_processing(self, db_session: AsyncSession) -> None:
+    async def test_job_transitions_to_processing(
+        self, db_session: AsyncSession
+    ) -> None:
         """Job should transition to processing when work begins."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -83,13 +85,15 @@ class TestJobStateTransitions:
         )
 
         # Simulate completion
-        result_summary = json.dumps({
-            "pdf_name": "completed-test",
-            "title": "Completed Test",
-            "authors": "Author",
-            "chunk_count": 5,
-            "paper_version": 1,
-        })
+        result_summary = json.dumps(
+            {
+                "pdf_name": "completed-test",
+                "title": "Completed Test",
+                "authors": "Author",
+                "chunk_count": 5,
+                "paper_version": 1,
+            }
+        )
         await update_ingestion_job(
             db_session,
             job_id=result.job_id,
@@ -131,7 +135,9 @@ class TestJobStateTransitions:
         assert job.error_message == "Test error message"
 
     @pytest.mark.asyncio
-    async def test_job_progress_increases_monotonically(self, db_session: AsyncSession) -> None:
+    async def test_job_progress_increases_monotonically(
+        self, db_session: AsyncSession
+    ) -> None:
         """Job progress should increase through stages."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -281,7 +287,9 @@ class TestRetryRules:
         assert job.retry_count == 3
 
     @pytest.mark.asyncio
-    async def test_retry_resets_status_and_progress(self, db_session: AsyncSession) -> None:
+    async def test_retry_resets_status_and_progress(
+        self, db_session: AsyncSession
+    ) -> None:
         """Retry should reset status to pending and progress to 0."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -325,7 +333,9 @@ class TestStagedFileRetention:
     """Tests for staged file retention."""
 
     @pytest.mark.asyncio
-    async def test_staged_file_created_on_upload(self, db_session: AsyncSession) -> None:
+    async def test_staged_file_created_on_upload(
+        self, db_session: AsyncSession
+    ) -> None:
         """Staged file should be created when job is created."""
         file_content = b"%PDF-1.4 unique test content"
         result = await async_upload_service.create_async_upload_job(
@@ -344,7 +354,9 @@ class TestStagedFileRetention:
         assert saved_content == file_content
 
     @pytest.mark.asyncio
-    async def test_staged_file_retained_after_failure(self, db_session: AsyncSession) -> None:
+    async def test_staged_file_retained_after_failure(
+        self, db_session: AsyncSession
+    ) -> None:
         """Staged file should be retained after job fails."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -369,7 +381,9 @@ class TestStagedFileRetention:
         assert os.path.exists(staged_path)
 
     @pytest.mark.asyncio
-    async def test_staged_file_retained_after_retry(self, db_session: AsyncSession) -> None:
+    async def test_staged_file_retained_after_retry(
+        self, db_session: AsyncSession
+    ) -> None:
         """Staged file should be retained after retry."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -397,7 +411,9 @@ class TestStagedFileRetention:
         assert os.path.exists(staged_path)
 
     @pytest.mark.asyncio
-    async def test_staged_file_cleaned_up_after_success(self, db_session: AsyncSession) -> None:
+    async def test_staged_file_cleaned_up_after_success(
+        self, db_session: AsyncSession
+    ) -> None:
         """Staged file should be cleaned up after successful completion."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -420,7 +436,9 @@ class TestStagedFileRetention:
         assert not os.path.exists(job_dir)
 
     @pytest.mark.asyncio
-    async def test_staged_file_available_for_multiple_retries(self, db_session: AsyncSession) -> None:
+    async def test_staged_file_available_for_multiple_retries(
+        self, db_session: AsyncSession
+    ) -> None:
         """Staged file should be available for multiple retry attempts."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -456,7 +474,9 @@ class TestDuplicateExecutionPrevention:
     """Tests for preventing duplicate job execution."""
 
     @pytest.mark.asyncio
-    async def test_processing_job_cannot_be_restarted(self, db_session: AsyncSession) -> None:
+    async def test_processing_job_cannot_be_restarted(
+        self, db_session: AsyncSession
+    ) -> None:
         """Processing job should not be restartable."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -481,7 +501,9 @@ class TestDuplicateExecutionPrevention:
                 "authors": "Author",
                 "chunk_count": 1,
             }
-            with patch("api.services.async_upload_service._get_vector_store") as mock_vs:
+            with patch(
+                "api.services.async_upload_service._get_vector_store"
+            ) as mock_vs:
                 mock_vs.return_value.mark_paper_chunks_non_current.return_value = 0
                 await async_upload_service.run_ingestion_job(db_session, result.job_id)
 
@@ -489,7 +511,9 @@ class TestDuplicateExecutionPrevention:
         mock_ingest.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_completed_job_cannot_be_restarted(self, db_session: AsyncSession) -> None:
+    async def test_completed_job_cannot_be_restarted(
+        self, db_session: AsyncSession
+    ) -> None:
         """Completed job should not be restartable."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -515,7 +539,9 @@ class TestDuplicateExecutionPrevention:
                 "authors": "Author",
                 "chunk_count": 1,
             }
-            with patch("api.services.async_upload_service._get_vector_store") as mock_vs:
+            with patch(
+                "api.services.async_upload_service._get_vector_store"
+            ) as mock_vs:
                 mock_vs.return_value.mark_paper_chunks_non_current.return_value = 0
                 await async_upload_service.run_ingestion_job(db_session, result.job_id)
 
@@ -543,7 +569,10 @@ class TestErrorMessageSanitization:
         # Simulate failure with very long error
         long_error = "x" * 1000
         with (
-            patch("api.services.paper_service.ingest_paper_file", side_effect=RuntimeError(long_error)),
+            patch(
+                "api.services.paper_service.ingest_paper_file",
+                side_effect=RuntimeError(long_error),
+            ),
             patch("api.services.async_upload_service._get_vector_store") as mock_vs,
         ):
             mock_vs.return_value.mark_paper_chunks_non_current.return_value = 0
@@ -556,7 +585,9 @@ class TestErrorMessageSanitization:
         assert len(job.error_message) <= 500
 
     @pytest.mark.asyncio
-    async def test_whitespace_normalized_in_error(self, db_session: AsyncSession) -> None:
+    async def test_whitespace_normalized_in_error(
+        self, db_session: AsyncSession
+    ) -> None:
         """Whitespace in error messages should be normalized."""
         result = await async_upload_service.create_async_upload_job(
             session=db_session,
@@ -567,7 +598,10 @@ class TestErrorMessageSanitization:
         # Simulate failure with messy whitespace
         messy_error = "Error   with   lots   of   whitespace\n\nand\nnewlines"
         with (
-            patch("api.services.paper_service.ingest_paper_file", side_effect=RuntimeError(messy_error)),
+            patch(
+                "api.services.paper_service.ingest_paper_file",
+                side_effect=RuntimeError(messy_error),
+            ),
             patch("api.services.async_upload_service._get_vector_store") as mock_vs,
         ):
             mock_vs.return_value.mark_paper_chunks_non_current.return_value = 0

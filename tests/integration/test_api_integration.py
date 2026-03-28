@@ -85,7 +85,9 @@ class TestAsyncUploadFlow:
                 mock_db.return_value.__aexit__ = AsyncMock(return_value=None)
 
                 # Patch vector store
-                with patch("api.services.async_upload_service._get_vector_store") as mock_vs:
+                with patch(
+                    "api.services.async_upload_service._get_vector_store"
+                ) as mock_vs:
                     mock_vs.return_value.mark_paper_chunks_non_current.return_value = 0
 
                     # Patch ingestion
@@ -104,11 +106,22 @@ class TestAsyncUploadFlow:
                             "chunk_count": 3,
                         }
 
-                    with patch("api.services.paper_service.ingest_paper_file", side_effect=fake_ingest):
+                    with patch(
+                        "api.services.paper_service.ingest_paper_file",
+                        side_effect=fake_ingest,
+                    ):
                         transport = ASGITransport(app=app)
-                        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                        async with AsyncClient(
+                            transport=transport, base_url="http://test"
+                        ) as ac:
                             # Upload file
-                            files = {"file": ("test-paper.pdf", BytesIO(sample_pdf_bytes), "application/pdf")}
+                            files = {
+                                "file": (
+                                    "test-paper.pdf",
+                                    BytesIO(sample_pdf_bytes),
+                                    "application/pdf",
+                                )
+                            }
                             response = await ac.post("/api/papers/uploads", files=files)
 
                         assert response.status_code == 202
@@ -172,13 +185,15 @@ class TestAsyncUploadFlow:
             await session.commit()
 
             # Mark as completed
-            result_summary = json.dumps({
-                "pdf_name": "completed-test",
-                "title": "Completed Test",
-                "authors": "Author",
-                "chunk_count": 5,
-                "paper_version": 1,
-            })
+            result_summary = json.dumps(
+                {
+                    "pdf_name": "completed-test",
+                    "title": "Completed Test",
+                    "authors": "Author",
+                    "chunk_count": 5,
+                    "paper_version": 1,
+                }
+            )
             await update_ingestion_job(
                 session,
                 job_id=result.job_id,
@@ -236,7 +251,9 @@ class TestRetryFlow:
             await session.commit()
 
             # Retry
-            retry_result = await async_upload_service.retry_failed_job(session, result.job_id)
+            retry_result = await async_upload_service.retry_failed_job(
+                session, result.job_id
+            )
             await session.commit()
 
             assert retry_result is not None
@@ -267,7 +284,9 @@ class TestRetryFlow:
             await session.commit()
 
             # Try to retry pending job
-            retry_result = await async_upload_service.retry_failed_job(session, result.job_id)
+            retry_result = await async_upload_service.retry_failed_job(
+                session, result.job_id
+            )
 
             assert retry_result is None  # Should return None for non-failed jobs
 
@@ -280,7 +299,10 @@ class TestRetryFlow:
         import os
 
         from api.services import async_upload_service
-        from api.services.ingestion_job_service import get_ingestion_job, update_ingestion_job
+        from api.services.ingestion_job_service import (
+            get_ingestion_job,
+            update_ingestion_job,
+        )
 
         async with temp_db["session_maker"]() as session:
             # Create a job
@@ -394,7 +416,9 @@ class TestVersionHistoryFlow:
             await session.commit()
 
             # Get paper
-            paper = await paper_registry_service.get_paper_by_pdf_name(session, "reindex-test")
+            paper = await paper_registry_service.get_paper_by_pdf_name(
+                session, "reindex-test"
+            )
             assert paper is not None
 
             # Create versions for each job
@@ -438,26 +462,30 @@ class TestQueryProvenanceFlow:
         # Add test data
         mock_vector_store.add_multimodal(
             inputs=[{"text": "This is the methodology section of the paper."}],
-            metadatas=[{
+            metadatas=[
+                {
+                    "pdf_name": "test_paper",
+                    "page_idx": 5,
+                    "chunk_type": "text",
+                    "heading": "Methodology",
+                    "paper_version": 1,
+                    "is_current": True,
+                }
+            ],
+        )
+
+        # Build provenance from evidence
+        evidence = [
+            {
+                "evidence_id": "chunk-123",
                 "pdf_name": "test_paper",
                 "page_idx": 5,
                 "chunk_type": "text",
                 "heading": "Methodology",
+                "text": "This is the methodology section.",
                 "paper_version": 1,
-                "is_current": True,
-            }],
-        )
-
-        # Build provenance from evidence
-        evidence = [{
-            "evidence_id": "chunk-123",
-            "pdf_name": "test_paper",
-            "page_idx": 5,
-            "chunk_type": "text",
-            "heading": "Methodology",
-            "text": "This is the methodology section.",
-            "paper_version": 1,
-        }]
+            }
+        ]
 
         provenance = build_structured_provenance(evidence)
 
@@ -545,7 +573,9 @@ class TestAPIErrorHandling:
         response = client.get("/api/papers/nonexistent-paper")
         assert response.status_code == 404
 
-    def test_get_nonexistent_paper_versions_returns_404(self, client: TestClient) -> None:
+    def test_get_nonexistent_paper_versions_returns_404(
+        self, client: TestClient
+    ) -> None:
         """Non-existent paper versions should return 404."""
         response = client.get("/api/papers/nonexistent-paper/versions")
         assert response.status_code == 404

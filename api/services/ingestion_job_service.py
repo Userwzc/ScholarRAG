@@ -56,8 +56,12 @@ async def create_ingestion_job(
     return job
 
 
-async def get_ingestion_job(session: AsyncSession, job_id: str) -> Optional[IngestionJob]:
-    result = await session.execute(select(IngestionJob).where(IngestionJob.id == job_id))
+async def get_ingestion_job(
+    session: AsyncSession, job_id: str
+) -> Optional[IngestionJob]:
+    result = await session.execute(
+        select(IngestionJob).where(IngestionJob.id == job_id)
+    )
     return result.scalar_one_or_none()
 
 

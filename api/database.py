@@ -143,9 +143,13 @@ def _apply_migration_1(conn: Connection) -> None:
             """
         )
     )
-    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_pdf_name ON papers (pdf_name)"))
     conn.execute(
-        text("CREATE INDEX IF NOT EXISTS ix_paper_versions_paper_id ON paper_versions (paper_id)")
+        text("CREATE INDEX IF NOT EXISTS ix_papers_pdf_name ON papers (pdf_name)")
+    )
+    conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_paper_versions_paper_id ON paper_versions (paper_id)"
+        )
     )
     conn.execute(
         text(

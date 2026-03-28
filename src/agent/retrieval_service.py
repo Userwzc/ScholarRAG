@@ -11,7 +11,9 @@ class VectorStoreProtocol(Protocol):
         candidate_k: int | None = None,
     ) -> list[dict[str, Any]]: ...
 
-    def fetch_by_metadata(self, filter: Any, limit: int = 20) -> list[dict[str, Any]]: ...
+    def fetch_by_metadata(
+        self, filter: Any, limit: int = 20
+    ) -> list[dict[str, Any]]: ...
 
 
 class RetrievalService(Protocol):
@@ -34,7 +36,9 @@ class RetrievalService(Protocol):
         candidate_k: int | None = None,
     ) -> list[dict[str, Any]]: ...
 
-    def fetch_page_context(self, qdrant_filter: Any, *, limit: int = 20) -> list[dict[str, Any]]: ...
+    def fetch_page_context(
+        self, qdrant_filter: Any, *, limit: int = 20
+    ) -> list[dict[str, Any]]: ...
 
 
 class VectorStoreRetrievalService:

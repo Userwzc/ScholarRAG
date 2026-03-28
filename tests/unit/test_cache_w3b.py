@@ -45,7 +45,9 @@ def _minimal_middle_data() -> dict[str, Any]:
     }
 
 
-def test_tokenizer_initialized_once_across_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tokenizer_initialized_once_across_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     clear_tokenizer_cache()
     init_counter = {"count": 0}
 
@@ -66,7 +68,9 @@ def test_tokenizer_initialized_once_across_calls(monkeypatch: pytest.MonkeyPatch
     assert init_counter["count"] == 1
 
 
-def test_query_cache_hit_avoids_second_vector_search(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_query_cache_hit_avoids_second_vector_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _StubService:
         def __init__(self) -> None:
             self.calls = 0
@@ -133,7 +137,9 @@ def test_query_cache_hit_latency_under_10ms(monkeypatch: pytest.MonkeyPatch) -> 
     assert elapsed_ms < 10
 
 
-def test_query_cache_ttl_expiration_triggers_requery(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_query_cache_ttl_expiration_triggers_requery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _StubService:
         def __init__(self) -> None:
             self.calls = 0

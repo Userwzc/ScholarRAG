@@ -264,8 +264,18 @@ def check_citation_coverage(chunk: dict[str, Any]) -> bool:
 
     # Check required fields - handle both stored field names and legacy names
     # Stored metadata uses page_idx and chunk_type, but also accept page and type
-    page = metadata.get("page_idx") or metadata.get("page") or chunk.get("page_idx") or chunk.get("page")
-    chunk_type = metadata.get("chunk_type") or metadata.get("type") or chunk.get("chunk_type") or chunk.get("type")
+    page = (
+        metadata.get("page_idx")
+        or metadata.get("page")
+        or chunk.get("page_idx")
+        or chunk.get("page")
+    )
+    chunk_type = (
+        metadata.get("chunk_type")
+        or metadata.get("type")
+        or chunk.get("chunk_type")
+        or chunk.get("type")
+    )
     pdf_name = metadata.get("pdf_name") or chunk.get("pdf_name", "")
 
     if page is None or chunk_type is None or not pdf_name:

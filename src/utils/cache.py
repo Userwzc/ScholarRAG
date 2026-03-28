@@ -60,11 +60,15 @@ class QueryCache:
                 return None
             return deepcopy(entry.value)
 
-    def set(self, query: str, filters: dict[str, Any], results: list[dict[str, Any]]) -> None:
+    def set(
+        self, query: str, filters: dict[str, Any], results: list[dict[str, Any]]
+    ) -> None:
         key = self._key(query, filters)
         expires_at = time.time() + max(0, self.ttl)
         with self._lock:
-            self._cache[key] = _CacheEntry(value=deepcopy(results), expires_at=expires_at)
+            self._cache[key] = _CacheEntry(
+                value=deepcopy(results), expires_at=expires_at
+            )
 
     def clear(self) -> None:
         with self._lock:

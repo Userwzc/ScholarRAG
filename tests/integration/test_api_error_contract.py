@@ -59,7 +59,9 @@ def test_upload_server_error_is_sanitized_and_standard_payload() -> None:
         mock_db.return_value.__aenter__ = AsyncMock(return_value=object())
         mock_db.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("api.routes.papers.async_upload_service.create_async_upload_job") as mock_create:
+        with patch(
+            "api.routes.papers.async_upload_service.create_async_upload_job"
+        ) as mock_create:
             mock_create.side_effect = RuntimeError("database traceback secret-password")
 
             files = {

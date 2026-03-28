@@ -310,7 +310,9 @@ async def test_run_ingestion_job_persists_stage_progression_and_completes(
             "api.services.paper_service.ingest_paper_file",
             side_effect=_fake_ingest,
         ),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
         patch(
             "api.services.async_upload_service.ingestion_job_service.update_ingestion_job",
             side_effect=_spy_update_ingestion_job,
@@ -361,7 +363,9 @@ async def test_run_ingestion_job_marks_failed_and_preserves_staged_file_for_retr
             "api.services.paper_service.ingest_paper_file",
             side_effect=RuntimeError("x" * 1000),
         ),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
     ):
         mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 0
         await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
@@ -409,13 +413,22 @@ async def test_run_ingestion_job_prevents_duplicate_processing_execution(
 
     with (
         patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
     ):
         mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
-        async with temp_db["session_maker"]() as session_one, temp_db["session_maker"]() as session_two:
+        async with (
+            temp_db["session_maker"]() as session_one,
+            temp_db["session_maker"]() as session_two,
+        ):
             await asyncio.gather(
-                async_upload_service.run_ingestion_job(session_one, create_result.job_id),
-                async_upload_service.run_ingestion_job(session_two, create_result.job_id),
+                async_upload_service.run_ingestion_job(
+                    session_one, create_result.job_id
+                ),
+                async_upload_service.run_ingestion_job(
+                    session_two, create_result.job_id
+                ),
             )
             await session_one.commit()
             await session_two.commit()
@@ -460,20 +473,29 @@ async def test_db_lease_prevents_two_workers_from_processing_same_job(
         }
 
     with (
-        patch("api.services.paper_service.ingest_paper_file", side_effect=_slow_fake_ingest),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.paper_service.ingest_paper_file",
+            side_effect=_slow_fake_ingest,
+        ),
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
     ):
         mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
-        
+
         # Use sequential execution for SQLite compatibility
         # First worker should acquire lease and process
         async with temp_db["session_maker"]() as worker_one:
-            await async_upload_service.run_ingestion_job(worker_one, create_result.job_id)
+            await async_upload_service.run_ingestion_job(
+                worker_one, create_result.job_id
+            )
             await worker_one.commit()
-        
+
         # Second worker should see job as already processed
         async with temp_db["session_maker"]() as worker_two:
-            await async_upload_service.run_ingestion_job(worker_two, create_result.job_id)
+            await async_upload_service.run_ingestion_job(
+                worker_two, create_result.job_id
+            )
             await worker_two.commit()
 
     # Ingest should only be called once due to lease protection
@@ -523,7 +545,9 @@ async def test_db_lease_expired_processing_job_can_be_taken_over(
 
     with (
         patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
     ):
         mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
         await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
@@ -578,7 +602,9 @@ async def test_db_lease_recovers_job_after_worker_crash(
 
     with (
         patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
     ):
         mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
         await async_upload_service.run_ingestion_job(db_session, create_result.job_id)
@@ -674,7 +700,9 @@ async def test_reindex_run_creates_new_version_and_toggles_current_flag(
 
     with (
         patch("api.services.paper_service.ingest_paper_file", side_effect=_fake_ingest),
-        patch("api.services.async_upload_service._get_vector_store") as mock_get_vector_store,
+        patch(
+            "api.services.async_upload_service._get_vector_store"
+        ) as mock_get_vector_store,
     ):
         mock_get_vector_store.return_value.mark_paper_chunks_non_current.return_value = 1
         await async_upload_service.run_ingestion_job(db_session, first_job.job_id)

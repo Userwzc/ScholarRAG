@@ -9,6 +9,7 @@ import pytest
 # Check if torch is available - skip all tests if not
 try:
     import torch  # noqa: F401
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -16,7 +17,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(
     not TORCH_AVAILABLE,
-    reason="torch not installed - skipping vector store optimization tests"
+    reason="torch not installed - skipping vector store optimization tests",
 )
 
 
@@ -46,9 +47,9 @@ def _build_store_for_add_multimodal() -> "MultimodalQdrantStore":
     store.retrieval_mode = vector_store_module.RetrievalMode.DENSE
     store._client = MagicMock()
     store._embeddings = MagicMock()
-    store._embeddings.embed_documents.side_effect = (
-        lambda batch: [[0.1, 0.2] for _ in batch]
-    )
+    store._embeddings.embed_documents.side_effect = lambda batch: [
+        [0.1, 0.2] for _ in batch
+    ]
     return store
 
 
@@ -132,7 +133,11 @@ def test_graph_llm_reuse(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "src.agent.tooling", fake_tooling_module)
 
     fake_resilience_module = type(sys)("src.utils.resilience")
-    setattr(fake_resilience_module, "call_with_circuit_breaker", lambda fn, *a, **k: fn(*a, **k))
+    setattr(
+        fake_resilience_module,
+        "call_with_circuit_breaker",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
     monkeypatch.setitem(sys.modules, "src.utils.resilience", fake_resilience_module)
 
     fake_langgraph_agent = type(sys)("src.agent.langgraph_agent")
@@ -143,7 +148,9 @@ def test_graph_llm_reuse(monkeypatch) -> None:
     setattr(fake_evidence_builder, "build_structured_provenance", lambda _: {})
     setattr(fake_evidence_builder, "collect_evidence", lambda _: [])
     setattr(fake_evidence_builder, "enrich_evidence", lambda x: x)
-    monkeypatch.setitem(sys.modules, "src.agent.evidence_builder", fake_evidence_builder)
+    monkeypatch.setitem(
+        sys.modules, "src.agent.evidence_builder", fake_evidence_builder
+    )
 
     graph_module = importlib.import_module("src.agent.graph")
 

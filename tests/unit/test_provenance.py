@@ -35,7 +35,10 @@ class TestBuildStructuredProvenance:
         assert source["type"] == "text"
         assert source["chunk_id"] == "abc123def456"
         assert source["heading"] == "Introduction"
-        assert source["supporting_text"] == "This is the introduction section of the paper."
+        assert (
+            source["supporting_text"]
+            == "This is the introduction section of the paper."
+        )
         assert source["paper_version"] is None
 
     def test_multiple_evidence_deduplication(self) -> None:

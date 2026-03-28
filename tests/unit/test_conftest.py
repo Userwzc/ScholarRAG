@@ -127,7 +127,9 @@ class TestMockVectorStore:
             ]
         )
 
-        results = mock_vector_store.similarity_search("content", k=10, filter=filter_obj)
+        results = mock_vector_store.similarity_search(
+            "content", k=10, filter=filter_obj
+        )
 
         assert len(results) == 1
         assert results[0]["payload"]["metadata"]["pdf_name"] == "paper_a"
@@ -198,18 +200,20 @@ class TestConfigOverrides:
     def test_config_uses_test_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify that config module picks up test environment values."""
         import sys
-        
+
         # Set mock values before importing config
         monkeypatch.setenv("EMBEDDING_MODEL", "mock-model")
         monkeypatch.setenv("OPENAI_API_KEY", "test-key-mock")
         monkeypatch.setenv("LLM_MODEL", "mock-llm")
         monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999/mock")
-        
+
         # Remove config modules from cache to force fresh import
-        modules_to_remove = [key for key in sys.modules.keys() if key.startswith("config")]
+        modules_to_remove = [
+            key for key in sys.modules.keys() if key.startswith("config")
+        ]
         for mod in modules_to_remove:
             del sys.modules[mod]
-        
+
         try:
             import config.settings
         except ImportError:
@@ -223,7 +227,7 @@ class TestConfigOverrides:
         """Verify that tests don't require GPU."""
         # Set mock value
         monkeypatch.setenv("EMBEDDING_MODEL", "mock-model")
-        
+
         # EMBEDDING_MODEL should be a mock, not a real model path
         assert "Qwen3-VL" not in os.environ.get("EMBEDDING_MODEL", "")
         assert "mock" in os.environ.get("EMBEDDING_MODEL", "").lower()

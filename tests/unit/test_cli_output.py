@@ -26,7 +26,9 @@ def test_log_status_uses_logger_info(monkeypatch) -> None:
     assert calls == ["status-message"]
 
 
-def test_query_agent_status_goes_to_logger_and_token_to_stdout(monkeypatch, capsys) -> None:
+def test_query_agent_status_goes_to_logger_and_token_to_stdout(
+    monkeypatch, capsys
+) -> None:
     cli_main = importlib.import_module("main")
 
     events = [

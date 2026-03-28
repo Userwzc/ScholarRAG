@@ -271,8 +271,20 @@ class TestMetricCalculations:
     def test_aggregate_metrics(self) -> None:
         """Test metrics aggregation."""
         results = [
-            QueryResult(question="Q1", pdf_hit=True, page_hit=True, keyword_hits=2, keyword_total=3),
-            QueryResult(question="Q2", pdf_hit=False, page_hit=False, keyword_hits=1, keyword_total=2),
+            QueryResult(
+                question="Q1",
+                pdf_hit=True,
+                page_hit=True,
+                keyword_hits=2,
+                keyword_total=3,
+            ),
+            QueryResult(
+                question="Q2",
+                pdf_hit=False,
+                page_hit=False,
+                keyword_hits=1,
+                keyword_total=2,
+            ),
         ]
 
         metrics = aggregate_metrics(results)
@@ -438,10 +450,12 @@ class TestEvaluationRunner:
 
     def test_create_threshold_config_from_args(self) -> None:
         """Test creating threshold config from args."""
-        config = create_threshold_config_from_args([
-            "retrieval_hit_rate=0.6",
-            "page_hit_rate=0.4",
-        ])
+        config = create_threshold_config_from_args(
+            [
+                "retrieval_hit_rate=0.6",
+                "page_hit_rate=0.4",
+            ]
+        )
 
         assert config.retrieval_hit_rate == 0.6
         assert config.page_hit_rate == 0.4
@@ -456,13 +470,15 @@ class TestEvaluationRunner:
         # Add some test data to mock store
         mock_vector_store.add_multimodal(
             inputs=[{"text": "DREAM methodology approach framework"}],
-            metadatas=[{
-                "pdf_name": "dream_paper",
-                "page_idx": 2,
-                "chunk_type": "text",
-                "heading": "Methodology",
-                "is_current": True,
-            }],
+            metadatas=[
+                {
+                    "pdf_name": "dream_paper",
+                    "page_idx": 2,
+                    "chunk_type": "text",
+                    "heading": "Methodology",
+                    "is_current": True,
+                }
+            ],
         )
 
         # Create a simple dataset

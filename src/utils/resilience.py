@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.utils.exceptions import ExternalServiceError
 
