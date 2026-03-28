@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-sqlalchemy = pytest.importorskip("sqlalchemy")
+sqlalchemy = pytest.importorskip("sqlalchemy")  # noqa: E402
 
 from sqlalchemy import text  # type: ignore[reportMissingImports] # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # type: ignore[reportMissingImports] # noqa: E402
@@ -12,14 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from api.database import _bootstrap_schema  # noqa: E402
 from api.schemas import MessageCreate  # noqa: E402
 from api.services import conversation_service  # noqa: E402
-from api.services.ingestion_job_service import (
+from api.services.ingestion_job_service import (  # noqa: E402
     create_ingestion_job,
     update_ingestion_job,
-)  # noqa: E402
-from api.services.paper_registry_service import (
+)
+from api.services.paper_registry_service import (  # noqa: E402
     create_or_get_paper,
     create_paper_version,
-)  # noqa: E402
+)
 
 
 @pytest.mark.asyncio
