@@ -429,11 +429,10 @@ async def test_db_lease_prevents_two_workers_from_processing_same_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that database lease prevents duplicate processing.
-    
+
     Note: SQLite doesn't support high concurrency, so we test the lease logic
     sequentially rather than in parallel.
     """
-    import sys
     monkeypatch.setenv("USE_DB_JOB_LEASE", "true")
 
     async with temp_db["session_maker"]() as setup_session:
