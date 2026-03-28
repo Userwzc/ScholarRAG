@@ -119,7 +119,7 @@ GitHub Actions runs:
 1. `ruff check .` — Backend lint
 2. `ruff format --check .` — Backend format check  
 3. `bandit -r src/ -ll` — Security scan
-4. `pytest tests -k "not integration"` (unit tests only)
+4. `pytest tests -k "not integration" --cov=src --cov-fail-under=35` (unit tests with coverage)
 5. `npm run lint` — Frontend lint (no tests currently)
 6. `npm run build` — Frontend build
 7. `python -m tests.evaluation.runner` (non-blocking, `continue-on-error: true`)
