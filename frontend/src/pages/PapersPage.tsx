@@ -97,7 +97,14 @@ export default function PapersPage() {
   const { data: jobsData } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => listJobs(20),
-    refetchInterval: 2000,
+    refetchInterval: (query) => {
+      // Only poll when there are active (pending/processing) jobs
+      const jobs = query.state.data?.jobs || []
+      const hasActiveJobs = jobs.some(
+        (job: JobWithStatus) => job.status === "pending" || job.status === "processing"
+      )
+      return hasActiveJobs ? 5000 : false // Poll every 5s if active, otherwise stop
+    },
   })
 
   const deleteMutation = useMutation({
