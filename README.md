@@ -20,8 +20,7 @@ ScholarRAG 是一个专为学术研究者设计的**多模态 RAG 系统**。它
 ### 🔍 多模态嵌入与检索
 - **Qwen3-VL 嵌入**：基于 Qwen3-VL 的多模态嵌入模型，支持文本、图像混合输入
 - **LangChain 兼容**：实现 `langchain_core.embeddings.Embeddings` 接口，无缝集成
-- **混合检索**：支持稠密向量 + 稀疏 BM25 检索（可选）
-- **MMR 支持**：最大边际相关性，确保结果多样性
+- **混合检索**：支持稠密向量 + 稀疏 BM25 检索（可选，需设置 `ENABLE_HYBRID=true`）
 
 ### 💻 现代化 Web 界面
 - **沉浸式聊天**：全屏专注模式，支持 LaTeX 公式渲染（KaTeX）
