@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Link } from "react-router-dom"
 import ReactMarkdown from "react-markdown"
 import remarkMath from "remark-math"
@@ -17,7 +17,7 @@ import { cn } from "../lib/utils"
 
 const MAX_HISTORY_MESSAGES = 10
 
-export default function QueryPage() {
+export default function QueryPage(): React.JSX.Element {
   const {
     conversations,
     activeConversationId,

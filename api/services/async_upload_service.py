@@ -573,7 +573,7 @@ async def run_ingestion_job_background(job_id: str) -> None:
         try:
             await run_ingestion_job(session, job_id)
             await session.commit()
-        except Exception:
+        except Exception:  # noqa: S110 - Session rollback needs to catch broad exceptions
             await session.rollback()
             raise
 

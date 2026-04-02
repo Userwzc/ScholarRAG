@@ -1,7 +1,7 @@
 """Shared vision-preprocessing utilities for embedding models."""
 
 import os
-from typing import List, Union
+from typing import Union
 from urllib.parse import urlparse
 
 import numpy as np
@@ -45,8 +45,8 @@ def is_video_input(video: object) -> bool:
 
 
 def sample_frames(
-    frames: List[Union[str, Image.Image]], max_segments: int
-) -> List[Union[str, Image.Image]]:
+    frames: list[Union[str, Image.Image]], max_segments: int
+) -> list[Union[str, Image.Image]]:
     """Uniformly sample up to *max_segments* frames from *frames*."""
     duration = len(frames)
     if duration <= max_segments:

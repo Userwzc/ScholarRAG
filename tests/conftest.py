@@ -42,6 +42,13 @@ env -u OPENAI_API_KEY -u EMBEDDING_MODEL pytest tests -q -k "not integration"
 
 import os
 import sys
+import tempfile
+
+# CRITICAL: Create temp database BEFORE any imports
+# This ensures config/settings.py reads this value instead of .env
+_temp_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_temp_db_path = _temp_db_file.name
+_temp_db_file.close()
 
 # CRITICAL: Set test environment variables BEFORE any imports
 # This ensures config/settings.py reads these values instead of .env
@@ -59,8 +66,7 @@ os.environ["ENABLE_HYBRID"] = "false"
 os.environ["MINERU_BACKEND"] = "pipeline"
 os.environ["MINERU_MODEL_SOURCE"] = "local"
 os.environ["PDF_STORAGE_DIR"] = "/tmp/scholarrag_test_pdfs"
-
-import tempfile
+os.environ["DATABASE_PATH"] = _temp_db_path
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from typing import Any
@@ -92,6 +98,11 @@ def test_env() -> Generator[dict[str, str], None, None]:
     """
     # Store original values
     original_env: dict[str, str | None] = {}
+    
+    # Create a shared temporary database for all tests
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        shared_db_path = f.name
+    
     test_env_vars = {
         # Disable GPU/model dependencies
         "EMBEDDING_MODEL": "mock-model",
@@ -112,8 +123,8 @@ def test_env() -> Generator[dict[str, str], None, None]:
         "MINERU_MODEL_SOURCE": "local",
         # PDF storage
         "PDF_STORAGE_DIR": "/tmp/scholarrag_test_pdfs",
-        # Database
-        "DATABASE_PATH": "",  # Will be set by temp_db fixture
+        # Database - use shared temp database
+        "DATABASE_PATH": shared_db_path,
     }
 
     # Save original values and set test values BEFORE any imports
@@ -129,6 +140,10 @@ def test_env() -> Generator[dict[str, str], None, None]:
     os.environ["LLM_MODEL"] = "mock-llm"
 
     yield test_env_vars
+
+    # Cleanup shared database
+    if os.path.exists(shared_db_path):
+        os.unlink(shared_db_path)
 
     # Restore original values
     for key, original_value in original_env.items():

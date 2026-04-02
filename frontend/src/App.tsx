@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import React, { useEffect } from "react"
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Header } from "./components/layout/Header"
@@ -10,7 +10,7 @@ import PaperReaderPage from "./pages/PaperReaderPage"
 
 const queryClient = new QueryClient()
 
-function App() {
+function App(): React.JSX.Element {
   const { theme } = useThemeStore()
 
   useEffect(() => {

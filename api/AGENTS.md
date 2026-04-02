@@ -97,7 +97,7 @@ BACKGROUND_EXECUTOR_WORKERS=2  # 并行 worker 数
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/papers/upload` | 上传 PDF |
+| POST | `/api/papers/uploads` | 异步上传 PDF |
 | GET | `/api/papers` | 列出论文 |
 | DELETE | `/api/papers/{name}` | 删除论文 |
 | POST | `/api/query/stream` | SSE 流式查询 |

@@ -243,7 +243,6 @@ curl http://localhost:8000/metrics
 
 | 方法 | 端点 | 描述 |
 |------|------|------|
-| POST | `/api/papers/upload` | 上传 PDF（同步） |
 | POST | `/api/papers/uploads` | 异步上传 PDF |
 | GET | `/api/papers/uploads` | 获取上传任务列表 |
 | GET | `/api/papers/uploads/{job_id}` | 获取任务详情 |

@@ -9,7 +9,7 @@ interface SelectionToolbarProps {
   onClose: () => void
 }
 
-export function SelectionToolbar({ selectedText, position, onAsk, onClose }: SelectionToolbarProps) {
+export function SelectionToolbar({ selectedText, position, onAsk, onClose }: SelectionToolbarProps): React.JSX.Element {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {

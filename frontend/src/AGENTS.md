@@ -37,7 +37,7 @@ frontend/src/
 ## Key Patterns
 
 ### Component Conventions
-- Functional components with explicit return types: `function Foo(): JSX.Element`
+- Functional components with explicit return types: `function Foo(): React.JSX.Element`
 - PascalCase file names in `components/` or `pages/`
 - Props destructuring in function signature
 

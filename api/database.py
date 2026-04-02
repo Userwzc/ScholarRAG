@@ -257,6 +257,6 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
-        except Exception:
+        except Exception:  # noqa: S110 - Session rollback needs to catch broad exceptions
             await session.rollback()
             raise

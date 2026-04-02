@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, FileText, Trash2, Loader2, Upload, BookOpen, RefreshCw, AlertCircle, CheckCircle2, Clock } from "lucide-react"
@@ -13,7 +13,7 @@ interface JobWithStatus extends IngestionJobListItem {
   filename?: string
 }
 
-function JobCard({ job, onRetry }: { job: JobWithStatus; onRetry: (jobId: string) => void }) {
+function JobCard({ job, onRetry }: { job: JobWithStatus; onRetry: (jobId: string) => void }): React.JSX.Element {
   const statusConfig: Record<JobStatus, { icon: typeof Clock; color: string; bg: string; label: string }> = {
     pending: { icon: Clock, color: "text-muted-foreground", bg: "bg-secondary/50", label: "Queued" },
     processing: { icon: Loader2, color: "text-primary", bg: "bg-primary/10", label: "Processing" },
@@ -83,7 +83,7 @@ function JobCard({ job, onRetry }: { job: JobWithStatus; onRetry: (jobId: string
   )
 }
 
-export default function PapersPage() {
+export default function PapersPage(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [isUploading, setIsUploading] = useState(false)
   const [dragActive, setDragActive] = useState(false)

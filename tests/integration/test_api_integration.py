@@ -12,7 +12,7 @@ Uses httpx.AsyncClient with FastAPI app for realistic API testing.
 
 import json
 from io import BytesIO
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -29,9 +29,17 @@ from api.main import app  # noqa: E402
 
 
 @pytest.fixture
-def client() -> TestClient:
-    """Create a test client for the FastAPI app."""
-    return TestClient(app)
+def client(temp_db: dict) -> TestClient:
+    """Create a test client for the FastAPI app with initialized database."""
+    # Use TestClient with lifespan to ensure database is initialized
+    from api.database import init_db
+    import asyncio
+    
+    # Initialize database before creating client
+    asyncio.run(init_db())
+    
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -546,10 +554,10 @@ class TestQueryProvenanceFlow:
 class TestAPIErrorHandling:
     """Tests for API error handling."""
 
-    def test_upload_non_pdf_rejected(self, client: TestClient) -> None:
+    def test_upload_non_pdf_rejected(self, client: TestClient, temp_db: dict) -> None:
         """Non-PDF uploads should be rejected."""
         files = {"file": ("test.txt", BytesIO(b"not a pdf"), "text/plain")}
-        response = client.post("/api/papers/upload", files=files)
+        response = client.post("/api/papers/uploads", files=files)
         assert response.status_code == 400
 
     def test_async_upload_non_pdf_rejected(self, client: TestClient) -> None:
@@ -558,19 +566,30 @@ class TestAPIErrorHandling:
         response = client.post("/api/papers/uploads", files=files)
         assert response.status_code == 400
 
-    def test_get_nonexistent_job_returns_404(self, client: TestClient) -> None:
+    def test_get_nonexistent_job_returns_404(self, client: TestClient, temp_db: dict) -> None:
         """Non-existent job should return 404."""
         response = client.get("/api/papers/uploads/nonexistent-job-id")
         assert response.status_code == 404
 
-    def test_retry_nonexistent_job_returns_404(self, client: TestClient) -> None:
+    def test_retry_nonexistent_job_returns_404(self, client: TestClient, temp_db: dict) -> None:
         """Retry of non-existent job should return 404."""
         response = client.post("/api/papers/uploads/nonexistent-job-id/retry")
         assert response.status_code == 404
 
-    def test_get_nonexistent_paper_returns_404(self, client: TestClient) -> None:
+    def test_get_nonexistent_paper_returns_404(
+        self,
+        client: TestClient,
+        temp_db: dict,
+    ) -> None:
         """Non-existent paper should return 404."""
-        response = client.get("/api/papers/nonexistent-paper")
+        # Create mock vector store that returns empty results (paper not found)
+        mock_store = MagicMock()
+        mock_store.scroll_chunks.return_value = ([], None)
+        mock_store.count_chunks.return_value = 0
+
+        with patch("api.services.paper_service._get_vector_store") as mock:
+            mock.return_value = mock_store
+            response = client.get("/api/papers/nonexistent-paper")
         assert response.status_code == 404
 
     def test_get_nonexistent_paper_versions_returns_404(

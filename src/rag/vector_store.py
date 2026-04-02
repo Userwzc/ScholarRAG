@@ -247,7 +247,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
 
         try:
             free_bytes, _ = torch.cuda.mem_get_info()
-        except Exception:
+        except RuntimeError:
             return requested
 
         model_name = str(getattr(config, "EMBEDDING_MODEL", "")).lower()
@@ -337,7 +337,7 @@ class MultimodalQdrantStore(QdrantVectorStore):
                 for key, point in zip(point_id_keys, points):
                     if getattr(point, "payload", None):
                         payload_by_id[key] = dict(point.payload)
-            except Exception:
+            except (RuntimeError, ValueError):
                 payload_by_id = {}
 
         return [self._reconstruct_payload(doc, payload_by_id) for doc in docs]

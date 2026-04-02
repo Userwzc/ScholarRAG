@@ -2,7 +2,7 @@ import os
 import re
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
 
 from langchain_text_splitters import MarkdownTextSplitter
 from src.utils.cache import get_tokenizer
@@ -63,7 +63,7 @@ _VISUAL_LABEL_RE = re.compile(
 )
 
 
-def _merge_hyphen_lines(lines: List[str]) -> str:
+def _merge_hyphen_lines(lines: list[str]) -> str:
     """将多行文本合并，并修复行尾连字符造成的断词。
 
     例：["state-of-the-", "art method"] → "state-of-the-art method"
@@ -122,7 +122,7 @@ class MinerUParser:
                     target_md = os.path.join(root, file)
         return target_json, target_md, target_content_list
 
-    def parse_pdf(self, pdf_path: str) -> Dict[str, Any]:
+    def parse_pdf(self, pdf_path: str) -> dict[str, Any]:
         """
         Extracts content from a given PDF using MinerU.
 
@@ -178,12 +178,12 @@ class MinerUParser:
                         pdf_name,
                     )
 
-                raw_json_data: Dict[str, Any] = {}
+                raw_json_data: dict[str, Any] = {}
                 if target_json and os.path.exists(target_json):
                     with open(target_json, "r", encoding="utf-8") as f:
                         raw_json_data = json.load(f)
 
-                content_list_data: List[Dict[str, Any]] = []
+                content_list_data: list[dict[str, Any]] = []
                 if target_content_list and os.path.exists(target_content_list):
                     with open(target_content_list, "r", encoding="utf-8") as f:
                         content_list_data = json.load(f)
@@ -242,8 +242,8 @@ class MinerUParser:
             }
 
     def chunk_content(
-        self, parsed_data: Dict[str, Any]
-    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        self, parsed_data: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Parse structured output into retrievable chunks.
 
         Both pipeline and VLM/hybrid backends are processed through
@@ -286,9 +286,9 @@ class MinerUParser:
 
     def process_middle_json(
         self,
-        middle_data: Dict[str, Any],
+        middle_data: dict[str, Any],
         max_chunk_size: int = 1500,
-    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         将 middle.json 转换为可检索的 chunk 列表。
 
@@ -301,8 +301,8 @@ class MinerUParser:
         - [P1] list block 正确处理：合并多行为单个条目，references 中也收集
         - [P2] 去掉图表 chunk 中冗余的 "Figure"/"Table" 原始类型标签
         """
-        chunks: List[Dict[str, Any]] = []
-        doc_metadata: Dict[str, Any] = {
+        chunks: list[dict[str, Any]] = []
+        doc_metadata: dict[str, Any] = {
             "pre_abstract_meta": [],
             "footnotes_and_discarded": [],
             "references": [],
@@ -310,9 +310,9 @@ class MinerUParser:
         }
 
         # 累积文本 chunk 的状态
-        current_text_chunk: List[str] = []
+        current_text_chunk: list[str] = []
         current_chunk_length: int = 0
-        current_equation_imgs: List[str] = []
+        current_equation_imgs: list[str] = []
         current_page_idx: int = 0
         current_page_chunk_order: int = 0
         chunk_order: int = 0
@@ -320,7 +320,7 @@ class MinerUParser:
         # 多级标题栈：[(level, heading_text), ...]
         # level 由数字前缀推断（"4" → 1, "4.1" → 2, "4.1.1" → 3）
         # 非数字标题（如 "Algorithm 1:"）level=0，不入栈，只作局部标签
-        heading_stack: List[tuple[int, str]] = []
+        heading_stack: list[tuple[int, str]] = []
 
         # 当前局部标签（非章节号标题），随下一个章节标题清除
         local_label: str = ""
@@ -330,7 +330,7 @@ class MinerUParser:
 
         try:
             tokenizer = get_tokenizer("cl100k_base")
-        except Exception:
+        except (ImportError, RuntimeError):
             tokenizer = None
 
         # ------------------------------------------------------------------ #
@@ -342,9 +342,9 @@ class MinerUParser:
                 return len(tokenizer.encode(text))
             return len(text) // 4
 
-        def _spans_to_text(spans: List[Dict[str, Any]]) -> str:
+        def _spans_to_text(spans: list[dict[str, Any]]) -> str:
             """将一个 spans 列表拼接为文本，正确处理行内公式。"""
-            parts: List[str] = []
+            parts: list[str] = []
             for s in spans:
                 content = s.get("content", "")
                 if s.get("type") == "inline_equation":
@@ -354,12 +354,12 @@ class MinerUParser:
                 parts.append(content)
             return "".join(parts)
 
-        def get_text(block: Dict[str, Any]) -> str:
+        def get_text(block: dict[str, Any]) -> str:
             """
             递归提取 block 的纯文本内容。
             处理层次：blocks → lines → spans
             """
-            text_parts: List[str] = []
+            text_parts: list[str] = []
 
             if "blocks" in block:
                 for b in block["blocks"]:
@@ -395,7 +395,7 @@ class MinerUParser:
 
             return raw_text.strip()
 
-        def get_list_items(block: Dict[str, Any]) -> List[str]:
+        def get_list_items(block: dict[str, Any]) -> list[str]:
             """
             从 list block 中提取每个列表条目的完整文本。
             支持两种结构：
@@ -404,8 +404,8 @@ class MinerUParser:
             MinerU 的 list block 使用 is_list_start_line 标记条目起始行，
             同一条目的多行（缩进续行）需要合并。
             """
-            items: List[str] = []
-            current_item_lines: List[str] = []
+            items: list[str] = []
+            current_item_lines: list[str] = []
 
             # VLM backend: 二级 blocks 结构
             if "blocks" in block:
@@ -446,7 +446,7 @@ class MinerUParser:
 
             return [it for it in items if it]
 
-        def get_image_path(block: Dict[str, Any]) -> str:
+        def get_image_path(block: dict[str, Any]) -> str:
             """
             在 block 的各层级中查找图片路径。
             兼容 'img_path'（MinerU 官方文档）和 'image_path'（旧字段名）。
@@ -472,13 +472,13 @@ class MinerUParser:
                         return res
             return ""
 
-        def get_caption_and_footnote(block: Dict[str, Any]) -> tuple[str, str]:
+        def get_caption_and_footnote(block: dict[str, Any]) -> tuple[str, str]:
             """
             从 image / table 一级块中提取所有 caption 和 footnote 文本。
             返回 (caption_text, footnote_text)。
             """
-            captions: List[str] = []
-            footnotes: List[str] = []
+            captions: list[str] = []
+            footnotes: list[str] = []
             for sub in block.get("blocks", []):
                 sub_type = sub.get("type", "")
                 text = get_text(sub)
@@ -537,7 +537,7 @@ class MinerUParser:
         def append_chunk(
             content: str,
             chunk_type: str,
-            metadata: Dict[str, Any],
+            metadata: dict[str, Any],
         ) -> None:
             nonlocal chunk_order, current_page_chunk_order
 
@@ -574,15 +574,15 @@ class MinerUParser:
             chunk_order += 1
             current_page_chunk_order += 1
 
-        def split_large_text(text: str) -> List[str]:
+        def split_large_text(text: str) -> list[str]:
             """
             对超过 max_chunk_size 的单段文本做 tiktoken 感知的二次分割。
             """
             if count_tokens(text) <= max_chunk_size:
                 return [text]
             sentences = re.split(r"(?<=[.!?])\s+", text)
-            sub_chunks: List[str] = []
-            buf: List[str] = []
+            sub_chunks: list[str] = []
+            buf: list[str] = []
             buf_len = 0
             for sent in sentences:
                 sent_len = count_tokens(sent)
@@ -605,7 +605,7 @@ class MinerUParser:
             prefix = f"[{heading_prefix}]\n\n" if heading_prefix else ""
             combined_text = prefix + "\n\n".join(current_text_chunk)
 
-            meta: Dict[str, Any] = {
+            meta: dict[str, Any] = {
                 "heading": heading_prefix,
                 "page_idx": current_page_idx,
             }
@@ -708,7 +708,7 @@ class MinerUParser:
                     caption, footnote = get_caption_and_footnote(block)
                     heading_prefix = current_heading_path()
                     # [P2] 去掉冗余的 "Table" 原始类型标签
-                    parts: List[str] = [f"[{heading_prefix}]"]
+                    parts: list[str] = [f"[{heading_prefix}]"]
                     if caption:
                         parts.append(f"Caption: {caption}")
                     if footnote:

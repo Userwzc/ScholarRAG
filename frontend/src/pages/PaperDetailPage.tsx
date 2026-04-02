@@ -1,4 +1,4 @@
-import { useState } from "react"
+import React, { useState } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Trash2, Loader2, FileText, Image, Table, BookOpen, History, RefreshCw, Check } from "lucide-react"
@@ -8,7 +8,7 @@ import { Input } from "../components/ui/input"
 import { fetchPaper, fetchChunks, deletePaper, fetchVersions, reindexPaper } from "../lib/api"
 import { cn } from "../lib/utils"
 
-export default function PaperDetailPage() {
+export default function PaperDetailPage(): React.JSX.Element {
   const { pdfName } = useParams<{ pdfName: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()

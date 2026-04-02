@@ -157,7 +157,7 @@ def _build_visual_context_message(
             continue
         try:
             data_url = _image_path_to_data_url(img_path)
-        except Exception:
+        except (FileNotFoundError, ValueError, OSError):
             continue
 
         pdf_name = str(item.get("pdf_name", ""))

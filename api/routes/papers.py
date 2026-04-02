@@ -1,6 +1,5 @@
 # pyright: reportMissingImports=false
 
-import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, Query
@@ -8,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.database import get_db_session
+from src.utils.logger import get_logger
 from api.schemas import (
     ChunkListResponse,
     DeleteResponse,
@@ -31,7 +31,7 @@ from src.utils.exceptions import (
 )
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _as_http_exception(error: AppError) -> HTTPException:

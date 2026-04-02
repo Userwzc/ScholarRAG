@@ -157,7 +157,7 @@ QDRANT_COLLECTION_NAME: str = _parse_str_env("QDRANT_COLLECTION_NAME", "scholarr
 
 ### Patterns
 ```typescript
-function Foo(): JSX.Element {  // explicit return type
+function Foo(): React.JSX.Element {  // explicit return type
   const { data } = useQuery(...)  // @tanstack/react-query
   // ...
 }

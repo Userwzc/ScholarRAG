@@ -12,7 +12,7 @@ Subclasses define their own ``MAX_LENGTH`` and implement task-specific inference
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 from PIL import Image
 
@@ -37,7 +37,7 @@ FRAME_MAX_PIXELS: int = 768 * IMAGE_FACTOR * IMAGE_FACTOR
 MAX_TOTAL_PIXELS: int = 10 * FRAME_MAX_PIXELS
 
 # Type alias for a single video: either a file-path string or a list of frames.
-_VideoInput = Union[str, List[Union[str, Image.Image]]]
+_VideoInput = Union[str, list[Union[str, Image.Image]]]
 
 
 class Qwen3VLBase:
@@ -69,10 +69,10 @@ class Qwen3VLBase:
 
     @staticmethod
     def _truncate_tokens(
-        token_ids: List[int],
+        token_ids: list[int],
         max_length: int,
         special_token_ids: set,
-    ) -> List[int]:
+    ) -> list[int]:
         """Truncate *token_ids* to *max_length* preserving all special tokens.
 
         Non-special tokens are dropped from the interior of the sequence until
@@ -86,7 +86,7 @@ class Qwen3VLBase:
         num_special = sum(1 for t in token_ids if t in special_token_ids)
         num_non_special_to_keep = max_length - num_special
 
-        final: List[int] = []
+        final: list[int] = []
         kept = 0
         for t in token_ids:
             if t in special_token_ids:
@@ -102,13 +102,13 @@ class Qwen3VLBase:
 
     def _normalize_multimodal(
         self,
-        text: Optional[Union[List[str], str]],
-        image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]],
+        text: Optional[Union[list[str], str]],
+        image: Optional[Union[list[Union[str, Image.Image]], str, Image.Image]],
         video: Optional[
             Union[
-                List[Union[str, List[Union[str, Image.Image]]]],
+                list[Union[str, list[Union[str, Image.Image]]]],
                 str,
-                List[Union[str, Image.Image]],
+                list[Union[str, Image.Image]],
             ]
         ],
     ) -> tuple:
@@ -119,7 +119,7 @@ class Qwen3VLBase:
         """
         # ---- text ----
         if text is None:
-            texts: List[str] = []
+            texts: list[str] = []
         elif isinstance(text, str):
             texts = [text]
         else:
@@ -127,7 +127,7 @@ class Qwen3VLBase:
 
         # ---- image ----
         if image is None:
-            images: List[Union[str, Image.Image]] = []
+            images: list[Union[str, Image.Image]] = []
         elif not isinstance(image, list):
             images = [image]
         else:
@@ -135,7 +135,7 @@ class Qwen3VLBase:
 
         # ---- video ----
         if video is None:
-            videos: List[_VideoInput] = []
+            videos: list[_VideoInput] = []
         elif is_video_input(video):
             videos = [video]  # type: ignore[list-item]
         else:
@@ -149,18 +149,18 @@ class Qwen3VLBase:
 
     def _build_media_content(
         self,
-        images: List[Union[str, Image.Image]],
-        videos: List[_VideoInput],
+        images: list[Union[str, Image.Image]],
+        videos: list[_VideoInput],
         fps: Optional[float] = None,
         max_frames: Optional[int] = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """Convert normalised image/video lists to Qwen-VL content dicts.
 
         Returns a flat list of content dicts ready to be inserted into a
         conversation message.  Text entries are NOT included here — callers
         append them separately so they can control ordering.
         """
-        content: List[dict] = []
+        content: list[dict] = []
 
         for vid in videos:
             video_content: Any = None
@@ -168,7 +168,7 @@ class Qwen3VLBase:
 
             if isinstance(vid, list):
                 # Frame sequence
-                frames: List[Union[str, Image.Image]] = vid
+                frames: list[Union[str, Image.Image]] = vid
                 if self.max_frames is not None:
                     frames = sample_frames(frames, max_frames or self.max_frames)
                 video_content = [

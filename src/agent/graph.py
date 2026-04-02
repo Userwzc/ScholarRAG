@@ -89,7 +89,7 @@ def stream_final_answer(messages: list[BaseMessage]) -> Iterator[str]:
     prompt_messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
         *messages,
-        HumanMessage(content=_FINAL_ANSWER_PROMPT),
+        SystemMessage(content=_FINAL_ANSWER_PROMPT),
     ]
 
     stream_iter = call_with_circuit_breaker(get_llm().stream, prompt_messages)
@@ -252,7 +252,7 @@ def _build_visual_context_message(
             continue
         try:
             data_url = _image_path_to_data_url(img_path)
-        except Exception:
+        except (FileNotFoundError, ValueError, OSError):
             continue
 
         pdf_name = str(item.get("pdf_name", ""))

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import React, { useState, useCallback } from "react"
 import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, Loader2, Menu } from "lucide-react"
@@ -21,7 +21,7 @@ function useInitialPage(): number {
   return 0
 }
 
-export default function PaperReaderPage() {
+export default function PaperReaderPage(): React.JSX.Element {
   const { pdfName } = useParams<{ pdfName: string }>()
   const navigate = useNavigate()
   const initialPage = useInitialPage()

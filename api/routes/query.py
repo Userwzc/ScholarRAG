@@ -6,13 +6,13 @@
 处理用户查询请求，支持流式响应和多轮对话上下文。
 """
 
-import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from api.database import get_db_session
+from src.utils.logger import get_logger
 from api.schemas import MessageCreate, QueryRequest
 from api.services import conversation_service, query_service
 from src.utils.exceptions import (
@@ -23,14 +23,14 @@ from src.utils.exceptions import (
 )
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _as_http_exception(error: AppError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=app_error_to_dict(error))
 
 
-@router.post("")
+@router.post("/stream")
 async def query(request: QueryRequest):
     """
     执行查询并流式返回结果。

@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import unicodedata
 
 from dataclasses import dataclass
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, Union, Any
 from PIL import Image
 from transformers.models.qwen3_vl.modeling_qwen3_vl import (
     Qwen3VLPreTrainedModel,
@@ -159,16 +159,21 @@ class Qwen3VLEmbedder(Qwen3VLBase):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_length = max_length
 
+        dtype = (
+            torch.bfloat16
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+            else torch.float16
+        )
         self.model = Qwen3VLForEmbedding.from_pretrained(
             model_name_or_path, trust_remote_code=True, **kwargs
-        ).to(device)
+        ).to(device, dtype=dtype)
         self.processor = Qwen3VLProcessor.from_pretrained(  # nosec B615: Model path is user-configurable; revision pinning is optional
             model_name_or_path, padding_side="right"
         )
         self.model.eval()
 
     @torch.no_grad()
-    def forward(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+    def forward(self, inputs: dict[str, Any]) -> dict[str, torch.Tensor]:
         outputs = self.model(**inputs)
         return {
             "last_hidden_state": outputs.last_hidden_state,
@@ -177,19 +182,19 @@ class Qwen3VLEmbedder(Qwen3VLBase):
 
     def format_model_input(
         self,
-        text: Optional[Union[List[str], str]] = None,
-        image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,
+        text: Optional[Union[list[str], str]] = None,
+        image: Optional[Union[list[Union[str, Image.Image]], str, Image.Image]] = None,
         video: Optional[
             Union[
-                List[Union[str, List[Union[str, Image.Image]]]],
+                list[Union[str, list[Union[str, Image.Image]]]],
                 str,
-                List[Union[str, Image.Image]],
+                list[Union[str, Image.Image]],
             ]
         ] = None,
         instruction: Optional[str] = None,
         fps: Optional[float] = None,
         max_frames: Optional[int] = None,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         # Ensure instruction ends with punctuation
         if instruction:
             instruction = instruction.strip()
@@ -199,7 +204,7 @@ class Qwen3VLEmbedder(Qwen3VLBase):
                 instruction = instruction + "."
 
         # Build conversation skeleton
-        content: List[Dict] = []
+        content: list[dict] = []
         conversation = [
             {
                 "role": "system",
@@ -227,8 +232,8 @@ class Qwen3VLEmbedder(Qwen3VLBase):
         return conversation
 
     def _preprocess_inputs(
-        self, conversations: List[List[Dict]]
-    ) -> Dict[str, torch.Tensor]:
+        self, conversations: list[list[dict]]
+    ) -> dict[str, torch.Tensor]:
         text = self.processor.apply_chat_template(
             conversations, add_generation_prompt=True, tokenize=False
         )
@@ -272,7 +277,7 @@ class Qwen3VLEmbedder(Qwen3VLBase):
         return hidden_state[row, col]
 
     def process(
-        self, inputs: List[Dict[str, Any]], normalize: bool = True, batch_size: int = 4
+        self, inputs: list[dict[str, Any]], normalize: bool = True, batch_size: int = 4
     ) -> torch.Tensor:
         """Process inputs in batches and return normalised embedding tensors."""
         all_embeddings = []

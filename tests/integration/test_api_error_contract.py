@@ -19,7 +19,7 @@ def _assert_error_payload(payload: dict, code: str, message: str) -> None:
 
 def test_client_error_returns_4xx_and_standard_payload() -> None:
     client = TestClient(app)
-    response = client.post("/api/query", json={"question": "   "})
+    response = client.post("/api/query/stream", json={"question": "   "})
 
     assert response.status_code == 400
     _assert_error_payload(
@@ -37,7 +37,7 @@ def test_server_error_is_sanitized_and_standard_payload() -> None:
             "Traceback (most recent call last): secret-token-123"
         )
 
-        response = client.post("/api/query", json={"question": "what is dream?"})
+        response = client.post("/api/query/stream", json={"question": "what is dream?"})
 
     assert response.status_code == 500
     payload = response.json()
