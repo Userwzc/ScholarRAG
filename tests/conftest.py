@@ -67,12 +67,14 @@ os.environ["MINERU_BACKEND"] = "pipeline"
 os.environ["MINERU_MODEL_SOURCE"] = "local"
 os.environ["PDF_STORAGE_DIR"] = "/tmp/scholarrag_test_pdfs"
 os.environ["DATABASE_PATH"] = _temp_db_path
-from collections.abc import AsyncGenerator, Generator
-from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
-import pytest
+# noqa: E402 - Imports must be after env vars setup
+from collections.abc import AsyncGenerator, Generator  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+import pytest  # noqa: E402
 
 # Ensure project root is in path for imports
 project_root = Path(__file__).parent.parent
