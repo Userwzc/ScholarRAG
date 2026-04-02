@@ -34,10 +34,10 @@ def client(temp_db: dict) -> TestClient:
     # Use TestClient with lifespan to ensure database is initialized
     from api.database import init_db
     import asyncio
-    
+
     # Initialize database before creating client
     asyncio.run(init_db())
-    
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -566,12 +566,16 @@ class TestAPIErrorHandling:
         response = client.post("/api/papers/uploads", files=files)
         assert response.status_code == 400
 
-    def test_get_nonexistent_job_returns_404(self, client: TestClient, temp_db: dict) -> None:
+    def test_get_nonexistent_job_returns_404(
+        self, client: TestClient, temp_db: dict
+    ) -> None:
         """Non-existent job should return 404."""
         response = client.get("/api/papers/uploads/nonexistent-job-id")
         assert response.status_code == 404
 
-    def test_retry_nonexistent_job_returns_404(self, client: TestClient, temp_db: dict) -> None:
+    def test_retry_nonexistent_job_returns_404(
+        self, client: TestClient, temp_db: dict
+    ) -> None:
         """Retry of non-existent job should return 404."""
         response = client.post("/api/papers/uploads/nonexistent-job-id/retry")
         assert response.status_code == 404

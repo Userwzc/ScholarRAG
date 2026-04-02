@@ -100,11 +100,11 @@ def test_env() -> Generator[dict[str, str], None, None]:
     """
     # Store original values
     original_env: dict[str, str | None] = {}
-    
+
     # Create a shared temporary database for all tests
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         shared_db_path = f.name
-    
+
     test_env_vars = {
         # Disable GPU/model dependencies
         "EMBEDDING_MODEL": "mock-model",
