@@ -59,6 +59,12 @@ def search_papers(query: str, retrieval_service: RetrievalService = Depends(get_
 3. **Stream Mode**: 不要切换为 `"values"`（除非内部迭代器）
 4. **CUDA/vLLM**: 不要在此模块导入 `get_vector_store()`（见根级 AGENTS.md）
 
+## Architecture Notes
+
+- `graph.py` 是状态机封装层，调用 `langgraph_agent.py` 中定义的 `agent_app`
+- 视觉上下文构建由 `langgraph_agent.py` 中的工具节点处理
+- `multimodal_answerer.py` 独立处理答案生成时的图片转换
+
 ## API
 
 ```python

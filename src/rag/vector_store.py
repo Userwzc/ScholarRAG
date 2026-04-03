@@ -361,51 +361,6 @@ class MultimodalQdrantStore(QdrantVectorStore):
             self.metadata_payload_key: meta,
         }
 
-    # ========== 图片搜索 ==========
-
-    def search_by_image(
-        self,
-        image_path: str,
-        instruction: str | None = None,
-        text: str | None = None,
-        k: int = 5,
-        filter: models.Filter | None = None,
-    ) -> list[dict[str, Any]]:
-        """以图搜图/文。
-
-        Args:
-            image_path: 图片路径
-            instruction: 嵌入指令
-            text: 可选的附加文本
-            k: 返回数量
-            filter: Qdrant Filter
-
-        Returns:
-            [{"score": float, "payload": dict}, ...]
-        """
-        input_dict: dict[str, Any] = {"image": image_path}
-        if text:
-            input_dict["text"] = text
-
-        vector = self._embeddings.embed_query(
-            input_dict,
-            instruction=instruction
-            or "Retrieve images or text relevant to the user's query.",
-        )
-
-        results = self.similarity_search_with_score_by_vector(
-            vector,
-            k=k,
-            filter=filter,
-        )
-
-        docs = [doc for doc, _ in results]
-        payloads = self._reconstruct_payloads(docs)
-        return [
-            {"score": score, "payload": payload}
-            for (_, score), payload in zip(results, payloads)
-        ]
-
     # ========== 元数据操作 ==========
 
     def mark_paper_chunks_non_current(

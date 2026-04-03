@@ -10,8 +10,6 @@ Provides:
 Subclasses define their own ``MAX_LENGTH`` and implement task-specific inference logic.
 """
 
-from __future__ import annotations
-
 from typing import Any, Optional, Union
 
 from PIL import Image

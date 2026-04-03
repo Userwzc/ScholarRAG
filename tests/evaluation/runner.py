@@ -8,15 +8,7 @@ This module provides a deterministic evaluation pipeline that:
 - Calculates version-aware and provenance-aware metrics
 - Generates machine-readable JSON reports
 - Exits non-zero when thresholds are missed
-
-Usage:
-    python -m tests.evaluation.runner
-    python -m tests.evaluation.runner --dataset path/to/dataset.json
-    python -m tests.evaluation.runner --output path/to/report.json
-    python -m tests.evaluation.runner --thresholds retrieval_hit_rate=0.6
 """
-
-from __future__ import annotations
 
 import argparse
 import json

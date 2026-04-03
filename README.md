@@ -223,7 +223,6 @@ curl http://localhost:8000/metrics
 容器编排会同时拉起：
 - `api`（FastAPI）
 - `qdrant`（向量数据库）
-- `redis`（缓存/队列基础组件）
 
 `.dockerignore` 已默认排除 `data/`、`models/`、`qdrant_storage/` 等大目录以减少镜像体积。
 

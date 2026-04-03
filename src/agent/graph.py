@@ -1,12 +1,7 @@
-from __future__ import annotations
-
-import base64
 import threading
 from typing import Any
 
 import json
-import mimetypes
-from pathlib import Path
 
 from collections.abc import Iterator
 
@@ -190,15 +185,6 @@ def _tool_event_kind(tool_name: str) -> str:
     return mapping.get(tool_name, "tool")
 
 
-def _image_path_to_data_url(image_path: str) -> str:
-    mime_type, _ = mimetypes.guess_type(image_path)
-    if not mime_type:
-        mime_type = "image/jpeg"
-    data = Path(image_path).read_bytes()
-    encoded = base64.b64encode(data).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
-
-
 def _extract_visual_evidence(message: Any) -> list[dict[str, Any]]:
     payload = getattr(message, "artifact", None)
     if payload is None:
@@ -226,58 +212,6 @@ def _extract_visual_evidence(message: Any) -> list[dict[str, Any]]:
             continue
         visuals.append(item)
     return visuals
-
-
-def _build_visual_context_message(
-    question: str,
-    visuals: list[dict[str, Any]],
-) -> HumanMessage | None:
-    if not visuals:
-        return None
-
-    content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                "Retrieved visual context for the current question. "
-                "Inspect these images only if they help answer the question.\n"
-                f"Question: {question}"
-            ),
-        }
-    ]
-
-    for index, item in enumerate(visuals, start=1):
-        img_path = str(item.get("img_path", "")).strip()
-        if not img_path:
-            continue
-        try:
-            data_url = _image_path_to_data_url(img_path)
-        except (FileNotFoundError, ValueError, OSError):
-            continue
-
-        pdf_name = str(item.get("pdf_name", ""))
-        page_idx = item.get("page_idx", "")
-        heading = str(item.get("heading", ""))
-        caption = str(item.get("caption", ""))
-        chunk_type = str(item.get("chunk_type", "image"))
-
-        lines = [f"Visual {index}"]
-        if pdf_name:
-            lines.append(f"Paper: {pdf_name}.pdf")
-        if page_idx != "":
-            lines.append(f"Page: {page_idx}")
-        lines.append(f"Type: {chunk_type}")
-        if heading:
-            lines.append(f"Heading: {heading}")
-        if caption:
-            lines.append(f"Caption: {caption}")
-
-        content.append({"type": "text", "text": "\n".join(lines)})
-        content.append({"type": "image_url", "image_url": {"url": data_url}})
-
-    if len(content) == 1:
-        return None
-    return HumanMessage(content=content)
 
 
 def _summarize_tool_payload(message: Any) -> dict[str, Any]:

@@ -5,10 +5,8 @@ services:
       - "${API_PORT_HOST:-8000}:8000"
     environment:
       - QDRANT_HOST=qdrant
-      - REDIS_HOST=redis
     depends_on:
       - qdrant
-      - redis
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -16,11 +14,6 @@ services:
       - "${QDRANT_PORT_HOST:-6333}:6333"
     volumes:
       - qdrant_storage:/qdrant/storage
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT_HOST:-6379}:6379"
 
 volumes:
   qdrant_storage:
